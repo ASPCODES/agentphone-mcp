@@ -292,14 +292,27 @@ async function startHttp(): Promise<void> {
   );
 
   const clientId = process.env.MCP_OAUTH_CLIENT_ID;
+  // Secret is optional: when the gateway client is registered as a PUBLIC client
+  // (token_endpoint_auth_method "none") the proxy authenticates to the backend
+  // with PKCE alone. Leaving it set keeps the gateway confidential. Crucially,
+  // when unset, mcp-use advertises token_endpoint_auth_method "none" to
+  // downstream DCR clients — strict clients (e.g. Vercel Connect) reject the
+  // "client_secret_post" that mcp-use otherwise advertises without issuing a
+  // secret. OAuth only needs a client_id to be enabled.
   const clientSecret = process.env.MCP_OAUTH_CLIENT_SECRET;
-  if (Boolean(clientId) !== Boolean(clientSecret)) {
+  const oauthEnabled = Boolean(clientId);
+  if (clientSecret && !clientId) {
     console.error(
-      "Both MCP_OAUTH_CLIENT_ID and MCP_OAUTH_CLIENT_SECRET must be set to enable OAuth; " +
-        "partial config ignored, OAuth disabled."
+      "MCP_OAUTH_CLIENT_SECRET is set but MCP_OAUTH_CLIENT_ID is missing; OAuth is disabled."
+    );
+  } else if (oauthEnabled && !clientSecret) {
+    // Make the mode flip visible in otherwise-silent self-host deployments.
+    console.error(
+      'OAuth enabled in PUBLIC-client mode (no MCP_OAUTH_CLIENT_SECRET): advertising ' +
+        'token_endpoint_auth_method "none". The gateway client must be registered at the ' +
+        "AgentPhone AS with token_endpoint_auth_method=none."
     );
   }
-  const oauthEnabled = Boolean(clientId && clientSecret);
   const hasServerApiKey = Boolean(process.env.AGENTPHONE_API_KEY);
 
   const server = new MCPServer({
@@ -313,7 +326,7 @@ async function startHttp(): Promise<void> {
             tokenEndpoint: `${BASE_URL}/oauth/token`,
             issuer: process.env.AGENTPHONE_OAUTH_ISSUER || BASE_URL,
             clientId: clientId!,
-            clientSecret: clientSecret!,
+            ...(clientSecret ? { clientSecret } : {}),
             scopes: ["mcp"],
             verifyToken: verifyTokenAgainstBackend,
           }),
