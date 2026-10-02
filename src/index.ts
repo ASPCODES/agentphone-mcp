@@ -255,7 +255,10 @@ async function verifyTokenAgainstBackend(
       signal: controller.signal,
     });
     if (!res.ok) throw new Error(`Token verification failed (${res.status})`);
-    const data: any = await res.json().catch(() => ({}));
+    const data: any = await res.json().catch((err) => {
+      if (err?.name === "AbortError") throw err;
+      return {};
+    });
     const user = data.user ?? data;
     return {
       payload: {
