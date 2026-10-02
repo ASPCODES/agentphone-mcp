@@ -18,7 +18,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
 import { normalizeObjectSchema, safeParseAsync } from "@modelcontextprotocol/sdk/server/zod-compat.js";
-import { z } from "zod";
+import { email, z } from "zod";
 import { AgentPhoneAPI } from "./api.js";
 import { registerTools, type ToolRegistrar } from "./tools.js";
 
@@ -246,24 +246,35 @@ async function startStdio(): Promise<void> {
 async function verifyTokenAgainstBackend(
   token: string
 ): Promise<{ payload: Record<string, unknown> }> {
-  // Our AS signs HS256 session JWTs (not JWKS), so validate via the backend.
-  const res = await fetch(`${BASE_URL}/auth/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`Token verification failed (${res.status})`);
-  const data: any = await res.json().catch(() => ({}));
-  const user = data.user ?? data;
-  // Spread the raw response first so our derived identity fields win — a
-  // top-level `sub`/`email` in /auth/me must not override the user's id.
-  return {
-    payload: {
-      ...data,
-      sub: String(user?.id ?? user?.user_id ?? "unknown"),
-      email: user?.email,
-      name: user?.name,
-    },
-  };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12_000); // 12 s
+
+  try {
+    const res = await fetch(`${BASE_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Token verification failed (${res.status})`);
+    const data: any = await res.json().catch(() => ({}));
+    const user = data.user ?? data;
+    return {
+      payload: {
+        ...data,
+        sub: String(user?.id ?? user?.user_id ?? "unknown"),
+        email: user?.email,
+        name: user?.name,
+      },
+    };
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      throw new Error("Token verification timed out", { cause: err });
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout)
+  }
 }
+
 
 async function startHttp(): Promise<void> {
   const { MCPServer, oauthProxy, getRequestContext } = await import("mcp-use/server");
