@@ -18,7 +18,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
 import { normalizeObjectSchema, safeParseAsync } from "@modelcontextprotocol/sdk/server/zod-compat.js";
-import { email, z } from "zod";
+import { z } from "zod";
 import { AgentPhoneAPI } from "./api.js";
 import { registerTools, type ToolRegistrar } from "./tools.js";
 
