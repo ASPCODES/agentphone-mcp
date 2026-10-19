@@ -847,9 +847,9 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
   server.tool(
     "list_agents",
-    "List all agents in your account. An agent is required before you can make calls — it owns " +
-      "phone numbers and handles voice/SMS. Returns each agent's ID, name, voice configuration, " +
-      "and attached phone numbers.",
+    "List agents in your account (a single page, sized by limit). An agent is required before you " +
+      "can make calls — it owns phone numbers and handles voice/SMS. Returns each agent's ID, name, " +
+      "voice configuration, and attached phone numbers.",
     {
       limit: z
         .number()
@@ -1279,8 +1279,9 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
   server.tool(
     "get_conversation",
-    "Get one SMS conversation with its full message history, identified by its conversation ID. " +
-      "Returns the contact, your phone number, the message count, any stored metadata, and the messages.",
+    "Get one SMS conversation with its message history (up to message_limit most recent messages), " +
+      "identified by its conversation ID. Returns the contact, your phone number, the message count, " +
+      "any stored metadata, and the messages.",
     {
       conversation_id: z.string().describe("The ID of the conversation to fetch, from list_conversations."),
       message_limit: z
@@ -1613,8 +1614,9 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
   server.tool(
     "delete_webhook",
     "Remove a webhook. Deleting an agent's webhook makes that agent fall back to the project-level " +
-      "webhook; deleting the project-level webhook stops inbound events until you set one again. " +
-      "Pass agent_id to remove an agent's webhook, or omit it to remove the project-level webhook.",
+      "webhook; deleting the project-level webhook stops events for agents using that default until " +
+      "you set one again (agents with their own webhook are unaffected). Pass agent_id to remove an " +
+      "agent's webhook, or omit it to remove the project-level webhook.",
     {
       agent_id: z
         .string()

@@ -57,15 +57,16 @@ const INSTRUCTIONS = [
   "",
   "Calling: make_conversation_call is the simplest way to place an automated call — the built-in " +
     "AI pursues a topic you give it and returns the transcript, with no webhook needed. make_call " +
-    "is for webhook-driven flows you control. Every call placed through this server automatically " +
-    "discloses that it is an AI, and that disclosure cannot be disabled.",
+    "is for webhook-driven flows you control. The connector prepends an AI disclosure to the " +
+    "greeting of calls its call tools place, and no tool argument disables it; calls placed " +
+    "directly through the AgentPhone API or SDKs bypass it.",
   "",
   "Billing and irreversible actions: buy_number, calls, and messages are billed per use. " +
     "delete_agent and manage_contact with action=delete cannot be undone. Deleting a webhook is " +
     "reversible — set_webhook restores it.",
   "",
-  "Fetch IDs from the list_* tools before calling anything that takes an agent_id, number_id, " +
-    "conversation_id, or call_id.",
+  "Use IDs returned by account_overview, create_agent, buy_number, or the relevant list_* tools " +
+    "before calling anything that takes an agent_id, number_id, conversation_id, or call_id.",
 ].join("\n");
 
 // Hosted platforms (Manufact, etc.) set PORT. Local MCP clients launch the bare
