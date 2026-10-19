@@ -352,6 +352,10 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
   server.tool(
     "send_message",
     "Send an SMS or iMessage from one of your agent's phone numbers, or react to a message.\n\n" +
+      "Inputs are optional in the schema because the tool has two modes, and the required ones are " +
+      "checked when you call it: sending needs a recipient (to_number) plus body and/or media; " +
+      "reacting needs reaction plus react_to_message_id. Supplying both a reaction and message " +
+      "fields is rejected.\n" +
       "The agent must have at least one phone number attached. If the agent has multiple numbers, " +
       "number_id or from_number selects which one to send from.\n" +
       "iMessage extras (silently ignored on SMS): reply_to_message_id threads the reply under an " +
@@ -874,7 +878,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     {
       name: z
         .string()
-        .describe("Name for the agent (e.g. 'Customer Support', 'Sales Bot')"),
+        .describe("A label for the agent, shown in listings and account views (e.g. 'Customer Support' or 'Sales Bot')."),
       description: z
         .string()
         .optional()
@@ -997,7 +1001,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       "Switching voice_mode to 'hosted' requires a system_prompt.",
     {
       agent_id: z.string().describe("The ID of the agent to update, from list_agents."),
-      name: z.string().optional().describe("New name for the agent"),
+      name: z.string().optional().describe("A new label for the agent, shown in listings and account views."),
       description: z.string().optional().describe("A short note describing what this agent is for; for your reference only."),
       voice_mode: z
         .enum(["webhook", "hosted"])
@@ -1114,7 +1118,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
   server.tool(
     "delete_agent",
     "Delete an agent permanently. Phone numbers attached to it are kept but unassigned. " +
-      "This cannot be undone.",
+      "This cannot be undone. Returns the deleted agent's name and ID as confirmation.",
     {
       agent_id: z.string().describe("The ID of the agent to delete, from list_agents."),
     },
@@ -1448,13 +1452,13 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .min(1)
         .max(365)
         .default(30)
-        .describe("Number of days to look back (only used with breakdown='daily')"),
+        .describe("How far back the daily series reaches, in days. Ignored unless breakdown='daily'."),
       months: z
         .number()
         .min(1)
         .max(24)
         .default(12)
-        .describe("Number of months to look back (only used with breakdown='monthly')"),
+        .describe("How far back the monthly series reaches, in months. Ignored unless breakdown='monthly'."),
     },
     { readOnlyHint: true, idempotentHint: true },
     async ({ breakdown, days, months }) => {
