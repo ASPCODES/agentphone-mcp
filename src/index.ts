@@ -21,6 +21,29 @@ import { normalizeObjectSchema, safeParseAsync } from "@modelcontextprotocol/sdk
 import { z } from "zod";
 import { AgentPhoneAPI } from "./api.js";
 import { registerTools, type ToolRegistrar } from "./tools.js";
+import { OUTPUT_SCHEMAS } from "./output-schemas.js";
+
+// Every tool declares an outputSchema, so the SDK requires a structuredContent
+// object on each successful (non-error) result. Handlers supply the real data;
+// this is a safety net so any success path that doesn't still validates against
+// the permissive (all-optional, passthrough) schema instead of throwing.
+function withStructuredFallback<A extends any[]>(
+  handler: (...args: A) => Promise<any>
+): (...args: A) => Promise<any> {
+  return async (...args: A) => {
+    const r = await handler(...args);
+    if (
+      r &&
+      typeof r === "object" &&
+      Array.isArray(r.content) &&
+      !r.isError &&
+      r.structuredContent === undefined
+    ) {
+      return { ...r, structuredContent: {} };
+    }
+    return r;
+  };
+}
 
 const NAME = "agentphone";
 const VERSION = "0.8.0";
@@ -291,8 +314,33 @@ async function startStdio(): Promise<void> {
     { instructions: INSTRUCTIONS }
   );
   installConciseValidation(server);
-  // McpServer.tool's signature matches ToolRegistrar exactly.
-  registerTools(server as unknown as ToolRegistrar, api);
+  // Adapter: register each tool via registerTool so it can carry a title and an
+  // outputSchema (the legacy .tool() overloads can't). Keeps tools.ts's
+  // (name, description, schema, annotations, handler) call shape unchanged.
+  const stdioRegistrar: ToolRegistrar = {
+    tool(
+      name: string,
+      description: string,
+      schema: Record<string, z.ZodTypeAny>,
+      annotationsOrHandler: Record<string, unknown> | ((args: any) => Promise<any>),
+      maybeHandler?: (args: any) => Promise<any>
+    ): void {
+      const handler = (
+        typeof annotationsOrHandler === "function" ? annotationsOrHandler : maybeHandler
+      )!;
+      const annotations =
+        typeof annotationsOrHandler === "function" ? {} : annotationsOrHandler;
+      const config: Record<string, unknown> = {
+        description,
+        inputSchema: schema ?? {},
+        annotations,
+      };
+      if (TOOL_META[name]?.title) config.title = TOOL_META[name].title;
+      if (OUTPUT_SCHEMAS[name]) config.outputSchema = OUTPUT_SCHEMAS[name];
+      (server as any).registerTool(name, config, withStructuredFallback(handler));
+    },
+  };
+  registerTools(stdioRegistrar, api);
   await server.connect(new StdioServerTransport());
 }
 
@@ -508,6 +556,7 @@ async function startHttp(): Promise<void> {
           description,
           schema: z.object(schema ?? {}),
           annotations: annotations as Record<string, unknown>,
+          ...(OUTPUT_SCHEMAS[name] ? { outputSchema: OUTPUT_SCHEMAS[name] } : {}),
         },
         async (params: unknown, ctx: any) => {
           const header = authorizationHeader();
@@ -528,7 +577,11 @@ async function startHttp(): Promise<void> {
               isError: true,
             } as any;
           }
-          return tokenStore.run(token, () => handler(params as any)) as any;
+          // Same structured-content safety net as the stdio path, via the
+          // shared helper so the two transports can't drift.
+          return withStructuredFallback((p: unknown) =>
+            tokenStore.run(token, () => handler(p as any))
+          )(params) as any;
         }
       );
     },
