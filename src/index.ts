@@ -577,17 +577,11 @@ async function startHttp(): Promise<void> {
               isError: true,
             } as any;
           }
-          const result = await tokenStore.run(token, () => handler(params as any));
-          if (
-            result &&
-            typeof result === "object" &&
-            Array.isArray((result as any).content) &&
-            !(result as any).isError &&
-            (result as any).structuredContent === undefined
-          ) {
-            return { ...(result as any), structuredContent: {} } as any;
-          }
-          return result as any;
+          // Same structured-content safety net as the stdio path, via the
+          // shared helper so the two transports can't drift.
+          return withStructuredFallback((p: unknown) =>
+            tokenStore.run(token, () => handler(p as any))
+          )(params) as any;
         }
       );
     },

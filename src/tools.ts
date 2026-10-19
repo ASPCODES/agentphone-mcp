@@ -253,7 +253,11 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           usage: usage?.numbers,
           agents: agents?.data,
           numbers: numbers?.data,
-          webhook: webhook ? { url: webhook.url, status: webhook.status } : null,
+          webhook: webhook
+            ? { url: webhook.url, status: webhook.status }
+            : results[2].status === "fulfilled"
+              ? null
+              : undefined,
           recentActivity: usage
             ? {
                 messagesLast30d: usage.stats.messagesLast30d,
@@ -545,7 +549,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       try {
         const result = await api.getMessages(number_id, limit);
         if (result.data.length === 0) {
-          return ok("No messages found for this number.", { data: [], hasMore: false });
+          return ok("No messages found for this number.", result);
         }
 
         const formatted = result.data
@@ -614,7 +618,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         }
 
         if (result.data.length === 0) {
-          return ok("No calls found.", { data: [], total: 0 });
+          return ok("No calls found.", result);
         }
 
         const formatted = result.data
@@ -1228,7 +1232,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       try {
         const result = await api.listVoices();
         if (result.data.length === 0) {
-          return ok("No voices available.", { data: [] });
+          return ok("No voices available.", result);
         }
 
         const formatted = result.data
@@ -1285,7 +1289,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           : await api.listConversations(limit, offset);
 
         if (result.data.length === 0) {
-          return ok("No conversations found.", { data: [], total: 0 });
+          return ok("No conversations found.", result);
         }
 
         const formatted = result.data
@@ -1397,7 +1401,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     async ({ search, limit, offset }) => {
       try {
         const result = await api.listContacts(limit, offset, search);
-        if (result.data.length === 0) return ok("No contacts found.", { data: [], total: 0 });
+        if (result.data.length === 0) return ok("No contacts found.", result);
         const formatted = result.data
           .map((c) => `${c.name} — ${c.phoneNumber}${c.email ? ` <${c.email}>` : ""} id=${c.id}`)
           .join("\n");
@@ -1459,8 +1463,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
         // action === "delete"
         if (!contact_id) return err(new Error("delete requires contact_id."));
-        await api.deleteContact(contact_id);
-        return ok(`Contact ${contact_id} deleted.`, { success: true });
+        const deleted = await api.deleteContact(contact_id);
+        return ok(`Contact ${contact_id} deleted.`, deleted);
       } catch (e) {
         return err(e);
       }
@@ -1499,7 +1503,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         if (breakdown === "daily") {
           const result = await api.getDailyUsage(days);
           if (result.data.length === 0) {
-            return ok("No usage data for this period.", { data: [] });
+            return ok("No usage data for this period.", result);
           }
           const formatted = result.data
             .map(
@@ -1512,7 +1516,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         if (breakdown === "monthly") {
           const result = await api.getMonthlyUsage(months);
           if (result.data.length === 0) {
-            return ok("No usage data for this period.", { data: [] });
+            return ok("No usage data for this period.", result);
           }
           const formatted = result.data
             .map(
@@ -1734,7 +1738,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           : await api.listWebhookDeliveries(limit, hours);
 
         if (result.data.length === 0) {
-          return ok("No webhook deliveries found.", { data: [], total: 0 });
+          return ok("No webhook deliveries found.", result);
         }
 
         const formatted = result.data
