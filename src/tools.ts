@@ -353,9 +353,9 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     "send_message",
     "Send an SMS or iMessage from one of your agent's phone numbers, or react to a message.\n\n" +
       "Inputs are optional in the schema because the tool has two modes, and the required ones are " +
-      "checked when you call it: sending needs a recipient (to_number) plus body and/or media; " +
-      "reacting needs reaction plus react_to_message_id. Supplying both a reaction and message " +
-      "fields is rejected.\n" +
+      "checked when you call it: sending needs a recipient (to_number) and a sender (agent_id, " +
+      "from_number, or number_id); reacting needs reaction plus react_to_message_id. Supplying " +
+      "both a reaction and message fields is rejected.\n" +
       "The agent must have at least one phone number attached. If the agent has multiple numbers, " +
       "number_id or from_number selects which one to send from.\n" +
       "iMessage extras (silently ignored on SMS): reply_to_message_id threads the reply under an " +
