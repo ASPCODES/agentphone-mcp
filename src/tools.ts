@@ -691,8 +691,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .string()
         .optional()
         .describe(
-          "The first thing the agent says when the call connects. If omitted, the call still opens " +
-            "with the required AI disclosure and your webhook drives what comes next."
+          "What the agent says right after the required AI disclosure when the call connects. If " +
+            "omitted, the call still opens with the disclosure and your webhook drives what comes next."
         ),
       from_number_id: z
         .string()

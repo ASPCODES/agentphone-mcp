@@ -61,7 +61,8 @@ const INSTRUCTIONS = [
     "discloses that it is an AI, and that disclosure cannot be disabled.",
   "",
   "Billing and irreversible actions: buy_number, calls, and messages are billed per use. " +
-    "delete_agent, delete_webhook, and manage_contact with action=delete cannot be undone.",
+    "delete_agent and manage_contact with action=delete cannot be undone. Deleting a webhook is " +
+    "reversible — set_webhook restores it.",
   "",
   "Fetch IDs from the list_* tools before calling anything that takes an agent_id, number_id, " +
     "conversation_id, or call_id.",
@@ -285,7 +286,7 @@ async function startStdio(): Promise<void> {
 
   const api = new AgentPhoneAPI(BASE_URL, apiKey);
   const server = new McpServer(
-    { name: NAME, title: TITLE, version: VERSION, websiteUrl: WEBSITE_URL, icons: ICONS },
+    { name: NAME, title: TITLE, version: VERSION, description: DESCRIPTION, websiteUrl: WEBSITE_URL, icons: ICONS },
     { instructions: INSTRUCTIONS }
   );
   installConciseValidation(server);
