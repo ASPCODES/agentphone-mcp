@@ -381,7 +381,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       "plus body and/or media. The agent must have a phone number attached; number_id or " +
       "from_number picks which one when it has several.\n" +
       "- React: set reaction and react_to_message_id (iMessage only) to tapback or emoji-react to " +
-      "a message. Don't also pass message fields — that's rejected.\n" +
+      "a message. Pass no send fields (recipient, sender, body/media, or send options); those are rejected.\n" +
       "iMessage extras (ignored on SMS): reply_to_message_id threads a reply under an earlier " +
       "message, and send_style adds an expressive screen/bubble effect.\n" +
       "Returns the sent message (id, status, channel, from/to numbers), or the applied reaction.",
