@@ -23,8 +23,49 @@ import { AgentPhoneAPI } from "./api.js";
 import { registerTools, type ToolRegistrar } from "./tools.js";
 
 const NAME = "agentphone";
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 const BASE_URL = (process.env.AGENTPHONE_BASE_URL || "https://api.agentphone.ai").replace(/\/$/, "");
+
+// Server handshake metadata surfaced in the MCP initialize/discovery response
+// (serverInfo title/websiteUrl/icons, plus server-wide instructions). mcp-use
+// (HTTP) and the SDK McpServer (stdio) both read these fields.
+const TITLE = "AgentPhone";
+const DESCRIPTION =
+  "Give AI agents real phone numbers, SMS, and voice calls. Buy US/Canada numbers, " +
+  "send and receive texts (SMS and iMessage), and place automated voice calls where a " +
+  "built-in AI holds the conversation and returns a transcript — all through AgentPhone.";
+const WEBSITE_URL = "https://docs.agentphone.ai/mcp";
+const ICONS = [
+  { src: "https://agentphone.ai/logo.png", mimeType: "image/png", sizes: ["943x960"] },
+];
+// Server-wide guidance for agents: cross-tool workflow, where IDs come from, and
+// which actions cost money or can't be undone. Kept distinct from the per-tool
+// descriptions so it adds orientation rather than repeating them.
+const INSTRUCTIONS = [
+  "AgentPhone gives you phone numbers and lets you text and call through them.",
+  "",
+  "Start with account_overview to see existing agents, numbers, webhook, and usage. The agent " +
+    "IDs and number IDs it returns are the values the other tools expect.",
+  "",
+  "Setup: create_agent makes an agent (the entity that owns numbers and handles calls and texts). " +
+    "buy_number provisions a number — a paid purchase that spends account balance and requires " +
+    "confirm=true. attach_number links a number to an agent. list_voices gives the voice IDs you " +
+    "can set on an agent.",
+  "",
+  "Messaging: send_message sends an SMS or iMessage from one of your numbers. get_messages, " +
+    "list_conversations, and get_conversation read history.",
+  "",
+  "Calling: make_conversation_call is the simplest way to place an automated call — the built-in " +
+    "AI pursues a topic you give it and returns the transcript, with no webhook needed. make_call " +
+    "is for webhook-driven flows you control. Every call placed through this server automatically " +
+    "discloses that it is an AI, and that disclosure cannot be disabled.",
+  "",
+  "Billing and irreversible actions: buy_number, calls, and messages are billed per use. " +
+    "delete_agent, delete_webhook, and manage_contact with action=delete cannot be undone.",
+  "",
+  "Fetch IDs from the list_* tools before calling anything that takes an agent_id, number_id, " +
+    "conversation_id, or call_id.",
+].join("\n");
 
 // Hosted platforms (Manufact, etc.) set PORT. Local MCP clients launch the bare
 // command with a clean env and expect stdio. `--http` / `--stdio` force a mode.
@@ -243,7 +284,10 @@ async function startStdio(): Promise<void> {
   const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
 
   const api = new AgentPhoneAPI(BASE_URL, apiKey);
-  const server = new McpServer({ name: NAME, version: VERSION });
+  const server = new McpServer(
+    { name: NAME, title: TITLE, version: VERSION, websiteUrl: WEBSITE_URL, icons: ICONS },
+    { instructions: INSTRUCTIONS }
+  );
   installConciseValidation(server);
   // McpServer.tool's signature matches ToolRegistrar exactly.
   registerTools(server as unknown as ToolRegistrar, api);
@@ -358,6 +402,11 @@ async function startHttp(): Promise<void> {
   const server = new MCPServer({
     name: NAME,
     version: VERSION,
+    title: TITLE,
+    description: DESCRIPTION,
+    instructions: INSTRUCTIONS,
+    websiteUrl: WEBSITE_URL,
+    icons: ICONS,
     ...(oauthEnabled
       ? {
           oauth: oauthProxy({
@@ -394,11 +443,14 @@ async function startHttp(): Promise<void> {
       protocolVersion: LATEST_PROTOCOL_VERSION,
       serverInfo: {
         name: NAME,
-        title: "AgentPhone MCP Server",
+        title: TITLE,
         version: VERSION,
+        websiteUrl: WEBSITE_URL,
+        icons: ICONS,
       },
-      description: "Give AI agents phone numbers, SMS, and voice calls.",
-      documentationUrl: "https://docs.agentphone.ai/mcp",
+      description: DESCRIPTION,
+      instructions: INSTRUCTIONS,
+      documentationUrl: WEBSITE_URL,
       transport: {
         type: "streamable-http",
         endpoint: "/mcp",
