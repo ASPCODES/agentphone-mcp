@@ -1101,7 +1101,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .min(10000)
         .max(3600000)
         .optional()
-        .describe("How long the agent waits through continuous caller silence before ending the call. Omit to use the server default (about 10 minutes)."),
+        .describe("How long the agent waits through continuous caller silence before ending the call. Omit to keep the agent's current timeout."),
       language: z
         .string()
         .optional()
