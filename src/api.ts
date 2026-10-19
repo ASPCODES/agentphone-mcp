@@ -507,8 +507,14 @@ export class AgentPhoneAPI {
     if (opts?.timeout) params.push(`timeout=${opts.timeout}`);
     if (params.length) path += `?${params.join("&")}`;
 
+    // Size the client abort timer from the requested wait, but clamp it to the
+    // server's own maximum. The input schema no longer bounds `timeout`, so this
+    // keeps an out-of-range value (e.g. 999999) from holding the socket open far
+    // longer than the server would ever wait; the API still validates the value.
     const fetchTimeout = opts?.wait
-      ? (opts.timeout || GET_CALL_MAX_WAIT_SECONDS) * 1000 + LONG_POLL_GRACE_MS
+      ? Math.min(opts.timeout || GET_CALL_MAX_WAIT_SECONDS, GET_CALL_MAX_WAIT_SECONDS) *
+          1000 +
+        LONG_POLL_GRACE_MS
       : undefined;
 
     return this.request<{
@@ -569,8 +575,17 @@ export class AgentPhoneAPI {
     if (fromNumberId !== undefined) body.fromNumberId = fromNumberId;
     if (voice !== undefined) body.voice = voice;
 
+    // Clamp the client abort timer to the server's maximum. The input schema no
+    // longer bounds max_wait_seconds, so this keeps an out-of-range value from
+    // holding the socket open far longer than the server would ever wait (the
+    // API still validates the raw value in the body).
     const fetchTimeout = waitForCompletion
-      ? (maxWaitSeconds ?? CONVERSATION_CALL_MAX_WAIT_SECONDS) * 1000 + LONG_POLL_GRACE_MS
+      ? Math.min(
+          maxWaitSeconds ?? CONVERSATION_CALL_MAX_WAIT_SECONDS,
+          CONVERSATION_CALL_MAX_WAIT_SECONDS
+        ) *
+          1000 +
+        LONG_POLL_GRACE_MS
       : undefined;
 
     return this.request<{
