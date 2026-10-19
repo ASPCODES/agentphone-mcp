@@ -51,7 +51,7 @@ const agentFields = {
   systemPrompt: z.string().nullable().optional().describe("Instructions for the hosted AI on calls, or null."),
   beginMessage: z.string().nullable().optional().describe("Opening line the hosted AI speaks, or null."),
   voice: z.string().optional().describe("Voice ID the agent speaks with."),
-  modelTier: z.string().optional().describe("Model quality/speed tier: turbo, balanced, or max."),
+  modelTier: z.string().optional().describe("Model quality/speed tier: turbo, balanced, max, or realtime."),
   transferNumber: z.string().nullable().optional().describe("E.164 number calls transfer to, or null if disabled."),
   voicemailMessage: z.string().nullable().optional().describe("Voicemail greeting text, or null if disabled."),
   sttMode: z.string().optional().describe("Speech-to-text mode: fast or accurate."),
@@ -184,7 +184,7 @@ const listMeta = {
 export const OUTPUT_SCHEMAS: Record<string, z.ZodTypeAny> = {
   account_overview: z
     .object({
-      usage: usageNumbers.nullable().optional().describe("Phone-number usage, or null if it failed to load."),
+      usage: usageNumbers.nullable().optional().describe("Phone-number usage; omitted if the lookup failed."),
       agents: z.array(agentObject).nullable().optional().describe("The account's agents (omitted if the lookup failed)."),
       numbers: z.array(z.object(numberFields).passthrough().describe("A phone number in the account.")).nullable().optional().describe("The account's phone numbers (omitted if the lookup failed)."),
       webhook: z
@@ -257,7 +257,7 @@ export const OUTPUT_SCHEMAS: Record<string, z.ZodTypeAny> = {
 
   make_call: callObject.describe("The initiated outbound call."),
 
-  make_conversation_call: callObject.describe("The call, with its transcript when it completed before returning."),
+  make_conversation_call: callObject.describe("The call, with transcript turns when available."),
 
   list_agents: z
     .object({ data: z.array(agentObject).optional().describe("Agents on this page."), ...listMeta })
