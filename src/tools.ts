@@ -372,19 +372,16 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
   server.tool(
     "send_message",
-    "Send an SMS or iMessage from one of your agent's phone numbers, or react to a message.\n\n" +
-      "Inputs are optional in the schema because the tool has two modes, and the required ones are " +
-      "checked when you call it: sending needs a recipient (to_number) and a sender (agent_id, " +
-      "from_number, or number_id); reacting needs reaction plus react_to_message_id. Supplying " +
-      "both a reaction and message fields is rejected.\n" +
-      "The agent must have at least one phone number attached. If the agent has multiple numbers, " +
-      "number_id or from_number selects which one to send from.\n" +
-      "iMessage extras (silently ignored on SMS): reply_to_message_id threads the reply under an " +
-      "earlier message, and send_style adds an expressive screen/bubble effect.\n" +
-      "To react to a message instead of sending one, set reaction and react_to_message_id " +
-      "(iMessage only). Reactions cannot select a sender through this connector. Non-empty " +
-      "message, media, recipient, sender or send-option fields are rejected; use a separate " +
-      "call to send a message.",
+    "Send an SMS or iMessage from one of your agent's phone numbers, or react to an existing " +
+      "message. The tool has two modes, so which inputs are required depends on the mode:\n" +
+      "- Send: give a recipient (to_number) and a sender (agent_id, from_number, or number_id), " +
+      "plus body and/or media. The agent must have a phone number attached; number_id or " +
+      "from_number picks which one when it has several.\n" +
+      "- React: set reaction and react_to_message_id (iMessage only) to tapback or emoji-react to " +
+      "a message. Pass no send fields (recipient, sender, body/media, or send options); those are rejected.\n" +
+      "iMessage extras (ignored on SMS): reply_to_message_id threads a reply under an earlier " +
+      "message, and send_style adds an expressive screen/bubble effect.\n" +
+      "Returns the sent message (id, status, channel, from/to numbers), or the applied reaction.",
     {
       agent_id: z
         .string()
@@ -889,7 +886,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     "Create a new agent. An agent owns phone numbers and handles calls/SMS.\n\n" +
       "A newly created agent has no phone number until one is attached.\n" +
       "Set voice_mode to 'hosted' with a system_prompt for autonomous AI voice calls, " +
-      "or 'webhook' (default) to forward call transcripts to your webhook URL.",
+      "or 'webhook' (default) to forward call transcripts to your webhook URL.\n" +
+      "Returns the created agent, including its new ID and full configuration.",
     {
       name: z
         .string()
@@ -1007,8 +1005,10 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
   server.tool(
     "update_agent",
     "Update an agent's configuration — name, description, voice settings, instructions, greeting, " +
-      "call transfer, or voicemail. Only provided fields are updated.\n" +
-      "Switching voice_mode to 'hosted' requires a system_prompt.",
+      "call transfer, or voicemail. Only provided fields are updated; omitted fields keep their " +
+      "current value.\n" +
+      "Switching voice_mode to 'hosted' requires a system_prompt.\n" +
+      "Returns the agent's full configuration after the update.",
     {
       agent_id: z.string().describe("The ID of the agent to update, from list_agents."),
       name: z.string().optional().describe("A new label for the agent, shown in listings and account views."),
