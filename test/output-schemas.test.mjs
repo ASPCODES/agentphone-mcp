@@ -181,3 +181,38 @@ test("account_overview reports failed webhook lookup as omitted, not null", asyn
   // A rejected lookup must not look like "no webhook configured" (null).
   assert.equal("webhook" in r.structuredContent && r.structuredContent.webhook === null, false);
 });
+
+test("webhook tools mask the signing secret in structuredContent by default", async () => {
+  const h = harness(makeStub());
+  for (const [name, args] of [["get_webhook", {}], ["set_webhook", { url: "https://example.com/hook" }]]) {
+    const r = await h.call(name, args);
+    assert.ok(OUTPUT_SCHEMAS[name].safeParse(r.structuredContent).success, name);
+    assert.doesNotMatch(r.structuredContent.secret, /realish/, `${name} leaked the secret in structuredContent`);
+    assert.match(r.structuredContent.secret, /masked/, `${name} should mask the secret`);
+  }
+});
+
+test("webhook structuredContent includes the real secret only with reveal_secret=true", async () => {
+  const h = harness(makeStub());
+  const r = await h.call("get_webhook", { reveal_secret: true });
+  assert.equal(r.structuredContent.secret, "whsec_realish");
+});
+
+test("manage_contact update and delete validate (delete passes the real success value)", async () => {
+  const h = harness(makeStub());
+  const upd = await h.call("manage_contact", { action: "update", contact_id: "ct_1", name: "Jo2" });
+  assert.equal(upd.isError, undefined);
+  assert.ok(OUTPUT_SCHEMAS.manage_contact.safeParse(upd.structuredContent).success);
+  const del = await h.call("manage_contact", { action: "delete", contact_id: "ct_1" });
+  assert.equal(del.isError, undefined);
+  assert.ok(OUTPUT_SCHEMAS.manage_contact.safeParse(del.structuredContent).success);
+  assert.equal(del.structuredContent.success, true);
+});
+
+// The adapter's safety net emits {} when a handler omits structured data, so
+// every schema must accept it.
+test("empty {} fallback validates against every output schema", () => {
+  for (const name of Object.keys(OUTPUT_SCHEMAS)) {
+    assert.ok(OUTPUT_SCHEMAS[name].safeParse({}).success, `${name}: {} fallback failed`);
+  }
+});
