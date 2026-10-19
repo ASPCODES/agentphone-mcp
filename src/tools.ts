@@ -255,19 +255,20 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
   server.tool(
     "list_numbers",
-    "List all phone numbers in your account, each with its ID, status, country, and assigned agent.",
+    "List all phone numbers in your account. Returns each number with its ID, status, " +
+      "country, and the agent it is assigned to (if any).",
     {
       limit: z
         .number()
         .min(1)
         .max(100)
         .default(20)
-        .describe("Max results to return"),
+        .describe("How many numbers to return in one page."),
       offset: z
         .number()
         .min(0)
         .default(0)
-        .describe("Number of results to skip (for pagination)"),
+        .describe("How many numbers to skip before this page, for paging through a long list."),
     },
     { readOnlyHint: true, idempotentHint: true },
     async ({ limit, offset }) => {
@@ -282,30 +283,36 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
   server.tool(
     "buy_number",
-    "Purchase a new phone number. This is a paid purchase that charges the account's balance. " +
-      "area_code requests a specific region (e.g. '415' for San Francisco); agent_id attaches it " +
-      "on purchase. Requires confirm=true to proceed.",
+    "Purchase a new phone number. This is a paid purchase that charges the account's balance, " +
+      "and requires confirm=true to actually go through. Returns the purchased number's details: " +
+      "its phone number, ID, country, and status.",
     {
       country: z
         .string()
         .length(2)
         .default("US")
-        .describe("2-letter ISO country code (e.g. US, CA, GB)"),
+        .describe("The country to buy the number in, as an ISO country code (for example US or CA)."),
       area_code: z
         .string()
         .length(3)
         .optional()
-        .describe("3-digit area code for a specific region (e.g. '415', '212', '310')"),
+        .describe(
+          "A preferred area code so the number is local to a specific region (e.g. 415 for San " +
+            "Francisco). Omit to accept any available area code."
+        ),
       agent_id: z
         .string()
         .optional()
-        .describe("Agent ID to attach this number to immediately"),
+        .describe(
+          "ID of an agent to attach the new number to right away (from list_agents or create_agent). " +
+            "Omit to leave the number unassigned."
+        ),
       confirm: z
         .boolean()
         .default(false)
         .describe("Must be true to complete the purchase. When false, no number is bought."),
     },
-    { openWorldHint: true },
+    { readOnlyHint: false, destructiveHint: true, openWorldHint: true, idempotentHint: false },
     async ({ country, area_code, agent_id, confirm }) => {
       const countryErr = validateCountry(country);
       if (countryErr) return err(new Error(countryErr));
@@ -345,6 +352,10 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
   server.tool(
     "send_message",
     "Send an SMS or iMessage from one of your agent's phone numbers, or react to a message.\n\n" +
+      "Inputs are optional in the schema because the tool has two modes, and the required ones are " +
+      "checked when you call it: sending needs a recipient (to_number) and a sender (agent_id, " +
+      "from_number, or number_id); reacting needs reaction plus react_to_message_id. Supplying " +
+      "both a reaction and message fields is rejected.\n" +
       "The agent must have at least one phone number attached. If the agent has multiple numbers, " +
       "number_id or from_number selects which one to send from.\n" +
       "iMessage extras (silently ignored on SMS): reply_to_message_id threads the reply under an " +
@@ -371,7 +382,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .string()
         .url()
         .optional()
-        .describe("URL of a single image/media file to attach"),
+        .describe("Link to a single image or media file to attach to the message."),
       media_urls: z
         .array(z.string().url())
         .optional()
@@ -379,7 +390,10 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       number_id: z
         .string()
         .optional()
-        .describe("Specific phone number ID to send a message from (if agent has multiple numbers). Omit for reactions."),
+        .describe(
+          "ID of the specific number to send from (from list_numbers). Use when the agent has more " +
+            "than one number; omit for reactions."
+        ),
       from_number: z
         .string()
         .optional()
@@ -394,7 +408,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           "spotlight", "echo", "invisible", "gentle", "loud", "slam",
         ])
         .optional()
-        .describe("iMessage only. Expressive screen/bubble effect to send with the message"),
+        .describe("An expressive screen or bubble effect played when the message arrives (iMessage only; ignored on SMS)."),
       react_to_message_id: z
         .string()
         .optional()
@@ -404,7 +418,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .optional()
         .describe("iMessage only. Tapback or single emoji applied to react_to_message_id: one of love, like, dislike, laugh, emphasize, question, or a single emoji (e.g. '🔥'). When set, this reacts instead of sending a message."),
     },
-    { openWorldHint: true },
+    { readOnlyHint: false, destructiveHint: true, openWorldHint: true, idempotentHint: false },
     async ({ agent_id, to_number, body, media_url, media_urls, number_id, from_number, reply_to_message_id, send_style, react_to_message_id, reaction }) => {
       // Reaction mode: react to an existing message instead of sending one.
       // A reaction and a message in the same call used to run the reaction and
@@ -494,16 +508,17 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
   server.tool(
     "get_messages",
-    "Get SMS messages for a specific phone number, identified by its number ID. " +
-      "Returns individual messages rather than grouped conversation threads.",
+    "Get SMS messages for a specific phone number, identified by its number ID. Returns a list of " +
+      "individual messages — each with its timestamp, sender, recipient, and text — rather than " +
+      "grouped conversation threads.",
     {
-      number_id: z.string().describe("The ID of the phone number"),
+      number_id: z.string().describe("The ID of the number whose messages you want, from list_numbers."),
       limit: z
         .number()
         .min(1)
         .max(200)
         .default(50)
-        .describe("Max messages to return"),
+        .describe("How many of the most recent messages to return."),
     },
     { readOnlyHint: true, idempotentHint: true },
     async ({ number_id, limit }) => {
@@ -537,34 +552,34 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       agent_id: z
         .string()
         .optional()
-        .describe("Filter to calls for a specific agent"),
+        .describe("Show only calls handled by this agent (ID from list_agents)."),
       number_id: z
         .string()
         .optional()
-        .describe("Filter to calls for a specific phone number"),
+        .describe("Show only calls on this phone number (ID from list_numbers)."),
       limit: z
         .number()
         .min(1)
         .max(100)
         .default(20)
-        .describe("Max results to return"),
+        .describe("How many calls to return in one page."),
       offset: z
         .number()
         .min(0)
         .default(0)
-        .describe("Number of results to skip (for pagination)"),
+        .describe("How many calls to skip before this page, for paging."),
       status: z
         .string()
         .optional()
-        .describe("Filter by status: ringing, in-progress, completed, failed, busy, no-answer"),
+        .describe("Keep only calls in this state, e.g. ringing, in-progress, completed, failed, busy, or no-answer."),
       direction: z
         .enum(["inbound", "outbound"])
         .optional()
-        .describe("Filter by direction: 'inbound' or 'outbound'"),
+        .describe("Keep only inbound calls, or only outbound calls."),
       search: z
         .string()
         .optional()
-        .describe("Search by phone number or keyword"),
+        .describe("Match calls by phone number or keyword."),
     },
     { readOnlyHint: true, idempotentHint: true },
     async ({ agent_id, number_id, limit, offset, status, direction, search }) => {
@@ -600,10 +615,13 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
   server.tool(
     "get_call",
-    "Get details and transcript for a specific call, identified by its call ID. " +
-      "Pass wait=true to block until an in-progress call finishes before returning.",
+    "Get details and transcript for a specific call, identified by its call ID. Returns the call's " +
+      "direction, participants, status, timestamps, and full transcript. Pass wait=true to block " +
+      "until an in-progress call finishes before returning.",
     {
-      call_id: z.string().describe("The call ID"),
+      call_id: z
+        .string()
+        .describe("The ID of the call to fetch, from list_calls or from a make_call / make_conversation_call response."),
       wait: z
         .boolean()
         .default(false)
@@ -616,7 +634,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .min(10)
         .max(300)
         .default(120)
-        .describe("Max seconds to wait when wait=true. Defaults to 120."),
+        .describe("How long to keep long-polling, in seconds, when wait=true, before returning the call in whatever state it has reached."),
     },
     { readOnlyHint: true, idempotentHint: true },
     async ({ call_id, wait, timeout }) => {
@@ -664,28 +682,32 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       "The agent must have a phone number attached and a webhook configured. " +
       "This MCP connector prepends an automated-assistant disclosure to the greeting sent to the API; " +
       "no tool argument disables that prefix. Calls made directly through the AgentPhone API or SDKs " +
-      "bypass this connector's disclosure logic.",
+      "bypass this connector's disclosure logic. " +
+      "Returns the new call's ID, status, and the numbers it connects.",
     {
       agent_id: z
         .string()
-        .describe("The agent ID (the agent must have a phone number attached)"),
+        .describe("The agent placing the call (ID from list_agents). The agent must have a phone number attached and a webhook configured."),
       to_number: z
         .string()
-        .describe("Recipient phone number in E.164 format (e.g. +14155551234)"),
+        .describe("The phone number to call, written in full international form with a country code, like +14155551234."),
       initial_greeting: z
         .string()
         .optional()
-        .describe("What the agent says when the call connects"),
+        .describe(
+          "What the agent says right after the required AI disclosure when the call connects. If " +
+            "omitted, the call still opens with the disclosure and your webhook drives what comes next."
+        ),
       from_number_id: z
         .string()
         .optional()
-        .describe("Specific phone number ID to call from (if agent has multiple numbers)"),
+        .describe("ID of the specific number to call from (from list_numbers), when the agent has more than one."),
       voice: z
         .string()
         .optional()
-        .describe("Voice ID override for this call"),
+        .describe("A voice ID (from list_voices) to override the agent's default voice for just this call."),
     },
-    { openWorldHint: true },
+    { readOnlyHint: false, destructiveHint: true, openWorldHint: true, idempotentHint: false },
     async ({ agent_id, to_number, initial_greeting, from_number_id, voice }) => {
       const phoneErr = validateE164(to_number);
       if (phoneErr) return err(new Error(phoneErr));
@@ -721,10 +743,10 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     {
       agent_id: z
         .string()
-        .describe("The agent ID (must have a phone number attached)"),
+        .describe("The agent that will place the call (ID from list_agents). It must have a phone number attached."),
       to_number: z
         .string()
-        .describe("Recipient phone number in E.164 format (e.g. +14155551234)"),
+        .describe("The phone number to call, written in full international form with a country code, like +14155551234."),
       topic: z.string().describe(
         "The conversation goal for the assistant to pursue. Embedded as the call objective within " +
           "connector-supplied AI identity instructions. These instructions guide the model; they do " +
@@ -743,17 +765,17 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .min(10)
         .max(600)
         .default(300)
-        .describe("Maximum seconds to wait for the call to complete. Defaults to 300 (5 minutes)."),
+        .describe("How long to wait for the call to finish before returning, in seconds, when wait=true."),
       from_number_id: z
         .string()
         .optional()
-        .describe("Specific phone number ID to call from (if agent has multiple numbers)"),
+        .describe("ID of the specific number to call from (from list_numbers), when the agent has more than one."),
       voice: z
         .string()
         .optional()
-        .describe("Voice ID override for this call"),
+        .describe("A voice ID (from list_voices) to override the agent's default voice for this call."),
     },
-    { openWorldHint: true },
+    { readOnlyHint: false, destructiveHint: true, openWorldHint: true, idempotentHint: false },
     async ({ agent_id, to_number, topic, initial_greeting, wait, max_wait_seconds, from_number_id, voice }) => {
       const phoneErr = validateE164(to_number);
       if (phoneErr) return err(new Error(phoneErr));
@@ -825,15 +847,16 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
   server.tool(
     "list_agents",
-    "List all agents with their phone numbers and voice configuration. " +
-      "An agent is required before you can make calls — it owns phone numbers and handles voice/SMS.",
+    "List agents in your account (a single page, sized by limit). An agent is required before you " +
+      "can make calls — it owns phone numbers and handles voice/SMS. Returns each agent's ID, name, " +
+      "voice configuration, and attached phone numbers.",
     {
       limit: z
         .number()
         .min(1)
         .max(100)
         .default(20)
-        .describe("Max results to return"),
+        .describe("How many agents to return in one page."),
     },
     { readOnlyHint: true, idempotentHint: true },
     async ({ limit }) => {
@@ -855,11 +878,11 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     {
       name: z
         .string()
-        .describe("Name for the agent (e.g. 'Customer Support', 'Sales Bot')"),
+        .describe("A label for the agent, shown in listings and account views (e.g. 'Customer Support' or 'Sales Bot')."),
       description: z
         .string()
         .optional()
-        .describe("Description of what this agent does"),
+        .describe("A short note describing what this agent is for (e.g. 'handles billing questions'). For your reference; it does not change how the agent behaves."),
       voice_mode: z
         .enum(["webhook", "hosted"])
         .optional()
@@ -871,11 +894,11 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       begin_message: z
         .string()
         .optional()
-        .describe("What the AI says when a call connects. Only used in 'hosted' mode."),
+        .describe("What the AI says first when a call connects (hosted mode only). If omitted, the AI opens on its own based on the system prompt."),
       voice: z
         .string()
         .optional()
-        .describe("Voice ID for the agent. Defaults to 'Skylar - Friendly Guide'."),
+        .describe("A voice ID from list_voices. Defaults to 'Skylar - Friendly Guide' if omitted."),
       model_tier: z
         .enum(["turbo", "balanced", "max", "realtime"])
         .optional()
@@ -896,13 +919,13 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .min(0.5)
         .max(2)
         .optional()
-        .describe("Speech speed multiplier. 1.0 = normal, 0.5 = half speed, 2.0 = double."),
+        .describe("How fast the agent speaks, as a multiplier of normal pace (1 is normal, below 1 is slower, above 1 is faster)."),
       interruption_sensitivity: z
         .number()
         .min(0)
         .max(1)
         .optional()
-        .describe("How easily callers can interrupt (barge in). 0 = never, 1 = at first sound. Default 0.8."),
+        .describe("How readily the agent lets a caller interrupt it — lower values make it harder to cut off, higher values stop it at the first sound."),
       enable_backchannel: z
         .boolean()
         .optional()
@@ -934,6 +957,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .optional()
         .describe("BCP-47 locale for speech recognition and synthesis, e.g. 'en-US', 'es-ES', 'ja-JP'."),
     },
+    { readOnlyHint: false, destructiveHint: false, openWorldHint: false, idempotentHint: false },
     async ({ name, description, voice_mode, system_prompt, begin_message, voice, model_tier, transfer_number, voicemail_message, voice_speed, interruption_sensitivity, enable_backchannel, enable_messaging, stt_mode, ambient_sound, denoising_mode, max_silence_ms, language }) => {
       if (transfer_number) {
         const phoneErr = validateE164(transfer_number);
@@ -976,13 +1000,13 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       "call transfer, or voicemail. Only provided fields are updated.\n" +
       "Switching voice_mode to 'hosted' requires a system_prompt.",
     {
-      agent_id: z.string().describe("The agent ID to update"),
-      name: z.string().optional().describe("New name for the agent"),
-      description: z.string().optional().describe("New description"),
+      agent_id: z.string().describe("The ID of the agent to update, from list_agents."),
+      name: z.string().optional().describe("A new label for the agent, shown in listings and account views."),
+      description: z.string().optional().describe("A short note describing what this agent is for; for your reference only."),
       voice_mode: z
         .enum(["webhook", "hosted"])
         .optional()
-        .describe("'webhook' forwards transcripts to your webhook. 'hosted' uses built-in AI with system_prompt."),
+        .describe("Whether calls are handled by your webhook (transcripts forwarded to your URL) or by the built-in hosted AI (driven by system_prompt)."),
       system_prompt: z
         .string()
         .optional()
@@ -994,7 +1018,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       voice: z
         .string()
         .optional()
-        .describe("Voice ID for the agent."),
+        .describe("A voice ID from list_voices to set for the agent."),
       model_tier: z
         .enum(["turbo", "balanced", "max", "realtime"])
         .optional()
@@ -1015,13 +1039,13 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .min(0.5)
         .max(2)
         .optional()
-        .describe("Speech speed multiplier. 1.0 = normal, 0.5 = half speed, 2.0 = double."),
+        .describe("How fast the agent speaks, as a multiplier of normal pace (1 is normal, below 1 is slower, above 1 is faster)."),
       interruption_sensitivity: z
         .number()
         .min(0)
         .max(1)
         .optional()
-        .describe("How easily callers can interrupt (barge in). 0 = never, 1 = at first sound. Default 0.8."),
+        .describe("How readily the agent lets a caller interrupt it — lower values make it harder to cut off, higher values stop it at the first sound."),
       enable_backchannel: z
         .boolean()
         .optional()
@@ -1094,11 +1118,11 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
   server.tool(
     "delete_agent",
     "Delete an agent permanently. Phone numbers attached to it are kept but unassigned. " +
-      "This cannot be undone.",
+      "This cannot be undone. Returns the deleted agent's name and ID as confirmation.",
     {
-      agent_id: z.string().describe("The agent ID to delete"),
+      agent_id: z.string().describe("The ID of the agent to delete, from list_agents."),
     },
-    { destructiveHint: true },
+    { readOnlyHint: false, destructiveHint: true, openWorldHint: false, idempotentHint: true },
     async ({ agent_id }) => {
       try {
         const result = await api.deleteAgent(agent_id);
@@ -1113,7 +1137,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     "get_agent",
     "Get details for a specific agent including its phone numbers, voice configuration, and instructions.",
     {
-      agent_id: z.string().describe("The agent ID"),
+      agent_id: z.string().describe("The ID of the agent to fetch, from list_agents."),
     },
     { readOnlyHint: true, idempotentHint: true },
     async ({ agent_id }) => {
@@ -1131,8 +1155,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     "Attach a phone number to an agent so the agent handles calls/SMS on that number. " +
       "Takes an agent ID and a phone number ID.",
     {
-      agent_id: z.string().describe("The agent ID"),
-      number_id: z.string().describe("The phone number ID to attach"),
+      agent_id: z.string().describe("The ID of the agent that should own the number, from list_agents."),
+      number_id: z.string().describe("The ID of the number to attach, from list_numbers."),
     },
     { idempotentHint: true },
     async ({ agent_id, number_id }) => {
@@ -1149,10 +1173,11 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
   server.tool(
     "detach_number",
-    "Detach a phone number from an agent. The number is kept in your account but becomes unassigned.",
+    "Detach a phone number from an agent. The number is kept in your account but becomes " +
+      "unassigned, and the agent stops handling calls and texts on it.",
     {
-      agent_id: z.string().describe("The agent ID that currently owns the number"),
-      number_id: z.string().describe("The phone number ID to detach"),
+      agent_id: z.string().describe("The ID of the agent that currently owns the number, from list_agents."),
+      number_id: z.string().describe("The ID of the number to detach, from list_numbers."),
     },
     { idempotentHint: true },
     async ({ agent_id, number_id }) => {
@@ -1167,7 +1192,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
   server.tool(
     "list_voices",
-    "List available voices for agents. Each voice has a voice_id used in an agent's voice field.",
+    "List the voices available for agents. Returns each voice's ID (used in an agent's voice " +
+      "field), name, provider, gender, and accent.",
     {},
     { readOnlyHint: true, idempotentHint: true },
     async () => {
@@ -1209,18 +1235,18 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       agent_id: z
         .string()
         .optional()
-        .describe("Filter to conversations for a specific agent"),
+        .describe("Show only conversations handled by this agent (ID from list_agents)."),
       limit: z
         .number()
         .min(1)
         .max(100)
         .default(20)
-        .describe("Max results to return"),
+        .describe("How many conversations to return in one page."),
       offset: z
         .number()
         .min(0)
         .default(0)
-        .describe("Number of results to skip (for pagination)"),
+        .describe("How many conversations to skip before this page, for paging."),
     },
     { readOnlyHint: true, idempotentHint: true },
     async ({ agent_id, limit, offset }) => {
@@ -1253,15 +1279,17 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
   server.tool(
     "get_conversation",
-    "Get a specific SMS conversation with full message history, identified by its conversation ID.",
+    "Get one SMS conversation with its message history (up to message_limit most recent messages), " +
+      "identified by its conversation ID. Returns the contact, your phone number, the message count, " +
+      "any stored metadata, and the messages.",
     {
-      conversation_id: z.string().describe("The conversation ID"),
+      conversation_id: z.string().describe("The ID of the conversation to fetch, from list_conversations."),
       message_limit: z
         .number()
         .min(1)
         .max(100)
         .default(50)
-        .describe("Max messages to include"),
+        .describe("How many of the most recent messages to include."),
     },
     { readOnlyHint: true, idempotentHint: true },
     async ({ conversation_id, message_limit }) => {
@@ -1301,11 +1329,11 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     "Set metadata on a conversation. Use this to store custom state, tags, or context " +
       "that persists between messages. Pass null to clear metadata.",
     {
-      conversation_id: z.string().describe("The conversation ID"),
+      conversation_id: z.string().describe("The ID of the conversation to update, from list_conversations."),
       metadata: z
         .record(z.string(), z.unknown())
         .nullable()
-        .describe("JSON metadata object to store on the conversation, or null to clear"),
+        .describe("A JSON object of custom state to store on the conversation (tags, context, and so on), or null to clear what's stored."),
     },
     { idempotentHint: true },
     async ({ conversation_id, metadata }) => {
@@ -1326,12 +1354,12 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
   server.tool(
     "list_contacts",
-    "List saved contacts (your address book). Optionally filter with a search term that matches " +
-      "name or phone number.",
+    "List saved contacts (your address book). Returns each contact's name, phone number, email, " +
+      "and ID. Optionally filter with a search term that matches name or phone number.",
     {
-      search: z.string().optional().describe("Filter by name or phone number"),
-      limit: z.number().min(1).max(100).default(50).describe("Max results to return"),
-      offset: z.number().min(0).default(0).describe("Number of results to skip (for pagination)"),
+      search: z.string().optional().describe("Match contacts by name or phone number."),
+      limit: z.number().min(1).max(100).default(50).describe("How many contacts to return in one page."),
+      offset: z.number().min(0).default(0).describe("How many contacts to skip before this page, for paging."),
     },
     { readOnlyHint: true, idempotentHint: true },
     async ({ search, limit, offset }) => {
@@ -1358,20 +1386,20 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     {
       action: z
         .enum(["create", "update", "delete"])
-        .describe("The operation to perform"),
+        .describe("Which operation to run: create a new contact, update an existing one, or delete one (delete is permanent)."),
       contact_id: z
         .string()
         .optional()
-        .describe("Contact ID. Required for 'update' and 'delete'."),
+        .describe("ID of the contact to act on, from list_contacts. Required for 'update' and 'delete'."),
       phone_number: z
         .string()
         .optional()
         .describe("Phone number in E.164 format (e.g. +14155551234). Required for 'create'."),
       name: z.string().optional().describe("Contact name. Required for 'create'."),
-      email: z.string().email().optional().describe("Contact email address"),
-      notes: z.string().optional().describe("Freeform notes about the contact"),
+      email: z.string().email().optional().describe("An email address to save with the contact."),
+      notes: z.string().optional().describe("Freeform notes to store with the contact, for your reference."),
     },
-    { destructiveHint: true },
+    { readOnlyHint: false, destructiveHint: true, openWorldHint: false, idempotentHint: false },
     async ({ action, contact_id, phone_number, name, email, notes }) => {
       if (phone_number) {
         const phoneErr = validateE164(phone_number);
@@ -1419,19 +1447,19 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       breakdown: z
         .enum(["summary", "daily", "monthly"])
         .default("summary")
-        .describe("'summary' for number usage and totals, 'daily' for per-day breakdown, 'monthly' for per-month breakdown"),
+        .describe("What to return: an overall summary of number usage and totals, a day-by-day series, or a month-by-month series."),
       days: z
         .number()
         .min(1)
         .max(365)
         .default(30)
-        .describe("Number of days to look back (only used with breakdown='daily')"),
+        .describe("How far back the daily series reaches, in days. Ignored unless breakdown='daily'."),
       months: z
         .number()
         .min(1)
         .max(24)
         .default(12)
-        .describe("Number of months to look back (only used with breakdown='monthly')"),
+        .describe("How far back the monthly series reaches, in months. Ignored unless breakdown='monthly'."),
     },
     { readOnlyHint: true, idempotentHint: true },
     async ({ breakdown, days, months }) => {
@@ -1502,8 +1530,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
   server.tool(
     "get_webhook",
-    "Get the webhook configuration. Pass agent_id to get an agent-specific webhook, " +
-      "or omit for the project-level default.",
+    "Get the webhook configuration — its URL, status, and signing secret. Pass agent_id to get an " +
+      "agent-specific webhook, or omit for the project-level default.",
     {
       agent_id: z
         .string()
@@ -1546,7 +1574,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       url: z
         .string()
         .url()
-        .describe("The publicly accessible webhook URL (must be HTTPS in production)"),
+        .describe("Where AgentPhone should POST inbound messages and call events. Use a public HTTPS endpoint in production."),
       agent_id: z
         .string()
         .optional()
@@ -1556,11 +1584,11 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .min(0)
         .max(50)
         .optional()
-        .describe("Number of recent messages to include as conversation context (0-50)"),
+        .describe("How many recent messages to include with each webhook as conversation context."),
       timeout: z
         .number()
         .optional()
-        .describe("Webhook response timeout in seconds"),
+        .describe("How many seconds to wait for your endpoint to respond before giving up. If omitted, the server uses its default timeout."),
       reveal_secret: z
         .boolean()
         .default(false)
@@ -1585,15 +1613,17 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
   server.tool(
     "delete_webhook",
-    "Remove a webhook. Pass agent_id to remove an agent's webhook (falls back to project default). " +
-      "Omit agent_id to remove the project-level webhook.",
+    "Remove a webhook. Deleting an agent's webhook makes that agent fall back to the project-level " +
+      "webhook; deleting the project-level webhook stops events for agents using that default until " +
+      "you set one again (agents with their own webhook are unaffected). Pass agent_id to remove an " +
+      "agent's webhook, or omit it to remove the project-level webhook.",
     {
       agent_id: z
         .string()
         .optional()
         .describe("Agent ID to delete that agent's webhook. Omit for project-level."),
     },
-    { destructiveHint: true },
+    { readOnlyHint: false, destructiveHint: true, openWorldHint: false, idempotentHint: true },
     async ({ agent_id }) => {
       try {
         if (agent_id) {
@@ -1653,12 +1683,12 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .min(1)
         .max(100)
         .default(20)
-        .describe("Max results to return"),
+        .describe("How many of the most recent deliveries to return. If omitted, the 20 most recent are returned."),
       hours: z
         .number()
         .min(1)
         .optional()
-        .describe("Only show deliveries from the last N hours"),
+        .describe("Only include deliveries from the last N hours. If omitted, deliveries are returned regardless of age."),
     },
     { readOnlyHint: true, idempotentHint: true },
     async ({ agent_id, limit, hours }) => {
