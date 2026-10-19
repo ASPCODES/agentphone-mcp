@@ -9,6 +9,7 @@ import { AgentPhoneAPI, ApiError } from "./api.js";
 
 type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
+  structuredContent?: Record<string, unknown>;
   isError?: boolean;
 };
 
@@ -49,8 +50,14 @@ function maskSecret(secret: string): string {
   return `${prefix}•••••• (masked; pass reveal_secret=true to show it)`;
 }
 
-function ok(text: string): ToolResult {
-  return { content: [{ type: "text", text }] };
+// A successful tool result. `structuredContent` is the machine-readable form of
+// the same result, validated against the tool's output schema by the MCP SDK;
+// it mirrors the text so clients can read fields directly. Error results go
+// through err() and carry no structured content (the SDK exempts them).
+function ok(text: string, structuredContent?: Record<string, unknown>): ToolResult {
+  return structuredContent !== undefined
+    ? { content: [{ type: "text", text }], structuredContent }
+    : { content: [{ type: "text", text }] };
 }
 
 function err(error: unknown): ToolResult {
@@ -242,7 +249,18 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           );
         }
 
-        return ok(sections.join("\n"));
+        return ok(sections.join("\n"), {
+          usage: usage?.numbers,
+          agents: agents?.data,
+          numbers: numbers?.data,
+          webhook: webhook ? { url: webhook.url, status: webhook.status } : null,
+          recentActivity: usage
+            ? {
+                messagesLast30d: usage.stats.messagesLast30d,
+                callsLast30d: usage.stats.callsLast30d,
+              }
+            : undefined,
+        });
       } catch (e) {
         return err(e);
       }
@@ -274,7 +292,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     async ({ limit, offset }) => {
       try {
         const result = await api.listNumbers(limit, offset);
-        return ok(JSON.stringify(result, null, 2));
+        return ok(JSON.stringify(result, null, 2), result);
       } catch (e) {
         return err(e);
       }
@@ -330,14 +348,16 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         return ok(
           `This will purchase a new ${country} phone number${area_code ? ` in area code ${area_code}` : ""}` +
             `${agent_id ? ` and attach it to agent ${agent_id}` : ""}, charging the account's balance. ` +
-            `Confirm with the user, then call buy_number again with the SAME arguments plus confirm=true: ${params}`
+            `Confirm with the user, then call buy_number again with the SAME arguments plus confirm=true: ${params}`,
+          { confirmationRequired: true }
         );
       }
 
       try {
         const result = await api.buyNumber(country, agent_id, area_code);
         return ok(
-          `Purchased number ${result.phoneNumber} (${result.country})\n\n${JSON.stringify(result, null, 2)}`
+          `Purchased number ${result.phoneNumber} (${result.country})\n\n${JSON.stringify(result, null, 2)}`,
+          result
         );
       } catch (e) {
         return err(e);
@@ -452,7 +472,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         }
         try {
           const r = await api.sendReaction(react_to_message_id, reaction);
-          return ok(`Reaction '${r.reaction_type}' sent to message ${r.message_id} (${r.channel}).`);
+          return ok(`Reaction '${r.reaction_type}' sent to message ${r.message_id} (${r.channel}).`, r);
         } catch (e) {
           return err(e);
         }
@@ -499,7 +519,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         if (result.reply_parent_unresolved) {
           lines.push(`  Note: couldn't thread under the reply parent; delivered without threading.`);
         }
-        return ok(lines.join("\n"));
+        return ok(lines.join("\n"), result);
       } catch (e) {
         return err(e);
       }
@@ -525,14 +545,14 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       try {
         const result = await api.getMessages(number_id, limit);
         if (result.data.length === 0) {
-          return ok("No messages found for this number.");
+          return ok("No messages found for this number.", { data: [], hasMore: false });
         }
 
         const formatted = result.data
           .map((m) => `[${m.receivedAt}] ${m.from} → ${m.to}: ${m.body}`)
           .join("\n");
 
-        return ok(`${result.data.length} message(s):\n\n${formatted}`);
+        return ok(`${result.data.length} message(s):\n\n${formatted}`, result);
       } catch (e) {
         return err(e);
       }
@@ -594,7 +614,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         }
 
         if (result.data.length === 0) {
-          return ok("No calls found.");
+          return ok("No calls found.", { data: [], total: 0 });
         }
 
         const formatted = result.data
@@ -605,7 +625,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           .join("\n");
 
         return ok(
-          `${result.data.length} call(s):\n\n${formatted}\n\nTotal: ${result.total}\n\nUse get_call with the id= value to fetch transcript.`
+          `${result.data.length} call(s):\n\n${formatted}\n\nTotal: ${result.total}\n\nUse get_call with the id= value to fetch transcript.`,
+          result
         );
       } catch (e) {
         return err(e);
@@ -667,7 +688,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
             `\nTranscript:\n${transcript}`,
           ]
             .filter(Boolean)
-            .join("\n")
+            .join("\n"),
+          result
         );
       } catch (e) {
         return err(e);
@@ -721,7 +743,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           voice,
         );
         return ok(
-          `Call initiated!\n  From: ${result.fromNumber}\n  To: ${result.toNumber}\n  Call ID: ${result.id}\n  Status: ${result.status}`
+          `Call initiated!\n  From: ${result.fromNumber}\n  To: ${result.toNumber}\n  Call ID: ${result.id}\n  Status: ${result.status}`,
+          result
         );
       } catch (e) {
         return err(e);
@@ -817,7 +840,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
                 transcript,
               ]
                 .filter(Boolean)
-                .join("\n")
+                .join("\n"),
+              result
             );
           }
         }
@@ -833,7 +857,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
             wait
               ? `Call ended but no transcript was recorded.`
               : `The AI will have an autonomous conversation about the topic you provided.\nUse get_call with the call ID to check the transcript once the call ends.`,
-          ].join("\n")
+          ].join("\n"),
+          result
         );
       } catch (e) {
         return err(e);
@@ -862,7 +887,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     async ({ limit }) => {
       try {
         const result = await api.listAgents(limit);
-        return ok(JSON.stringify(result, null, 2));
+        return ok(JSON.stringify(result, null, 2), result);
       } catch (e) {
         return err(e);
       }
@@ -886,7 +911,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       voice_mode: z
         .enum(["webhook", "hosted"])
         .optional()
-        .describe("'webhook' (default) forwards transcripts to your webhook. 'hosted' uses built-in AI with system_prompt."),
+        .describe("How calls are handled: forward transcripts to your webhook (the default), or use the built-in hosted AI driven by system_prompt."),
       system_prompt: z
         .string()
         .optional()
@@ -986,7 +1011,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           language,
         });
         return ok(
-          `Agent created!\n  ID: ${result.id}\n  Name: ${result.name}\n  Voice Mode: ${result.voiceMode}\n  Voice: ${result.voice}\n  Model Tier: ${result.modelTier}\n\n${JSON.stringify(result, null, 2)}`
+          `Agent created!\n  ID: ${result.id}\n  Name: ${result.name}\n  Voice Mode: ${result.voiceMode}\n  Voice: ${result.voice}\n  Model Tier: ${result.modelTier}\n\n${JSON.stringify(result, null, 2)}`,
+          result
         );
       } catch (e) {
         return err(e);
@@ -1014,7 +1040,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       begin_message: z
         .string()
         .optional()
-        .describe("What the AI says when a call connects (hosted mode only)."),
+        .describe("What the AI says when a call connects (hosted mode only). If omitted, the current greeting is left unchanged."),
       voice: z
         .string()
         .optional()
@@ -1107,7 +1133,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
 
         const result = await api.updateAgent(agent_id, params);
         return ok(
-          `Agent updated!\n  ID: ${result.id}\n  Name: ${result.name}\n  Voice Mode: ${result.voiceMode}\n  Voice: ${result.voice}\n  Model Tier: ${result.modelTier}\n\n${JSON.stringify(result, null, 2)}`
+          `Agent updated!\n  ID: ${result.id}\n  Name: ${result.name}\n  Voice Mode: ${result.voiceMode}\n  Voice: ${result.voice}\n  Model Tier: ${result.modelTier}\n\n${JSON.stringify(result, null, 2)}`,
+          result
         );
       } catch (e) {
         return err(e);
@@ -1126,7 +1153,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     async ({ agent_id }) => {
       try {
         const result = await api.deleteAgent(agent_id);
-        return ok(`Deleted agent '${result.name}' (${result.id})`);
+        return ok(`Deleted agent '${result.name}' (${result.id})`, result);
       } catch (e) {
         return err(e);
       }
@@ -1143,7 +1170,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     async ({ agent_id }) => {
       try {
         const result = await api.getAgent(agent_id);
-        return ok(JSON.stringify(result, null, 2));
+        return ok(JSON.stringify(result, null, 2), result);
       } catch (e) {
         return err(e);
       }
@@ -1153,7 +1180,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
   server.tool(
     "attach_number",
     "Attach a phone number to an agent so the agent handles calls/SMS on that number. " +
-      "Takes an agent ID and a phone number ID.",
+      "Takes an agent ID and a phone number ID. Returns the attached number and the agent it now belongs to.",
     {
       agent_id: z.string().describe("The ID of the agent that should own the number, from list_agents."),
       number_id: z.string().describe("The ID of the number to attach, from list_numbers."),
@@ -1163,7 +1190,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       try {
         const result = await api.attachNumber(agent_id, number_id);
         return ok(
-          `Attached number ${result.number.phoneNumber} to agent ${result.agentId}`
+          `Attached number ${result.number.phoneNumber} to agent ${result.agentId}`,
+          result
         );
       } catch (e) {
         return err(e);
@@ -1182,8 +1210,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     { idempotentHint: true },
     async ({ agent_id, number_id }) => {
       try {
-        await api.detachNumber(agent_id, number_id);
-        return ok(`Detached number ${number_id} from agent ${agent_id}`);
+        const detached = await api.detachNumber(agent_id, number_id);
+        return ok(`Detached number ${number_id} from agent ${agent_id}`, detached);
       } catch (e) {
         return err(e);
       }
@@ -1200,7 +1228,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       try {
         const result = await api.listVoices();
         if (result.data.length === 0) {
-          return ok("No voices available.");
+          return ok("No voices available.", { data: [] });
         }
 
         const formatted = result.data
@@ -1211,7 +1239,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           .join("\n");
 
         return ok(
-          `${result.data.length} voice(s) available:\n\n${formatted}`
+          `${result.data.length} voice(s) available:\n\n${formatted}`,
+          result
         );
       } catch (e) {
         return err(e);
@@ -1256,7 +1285,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           : await api.listConversations(limit, offset);
 
         if (result.data.length === 0) {
-          return ok("No conversations found.");
+          return ok("No conversations found.", { data: [], total: 0 });
         }
 
         const formatted = result.data
@@ -1269,7 +1298,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           .join("\n");
 
         return ok(
-          `${result.data.length} conversation(s):\n\n${formatted}\n\nTotal: ${result.total}`
+          `${result.data.length} conversation(s):\n\n${formatted}\n\nTotal: ${result.total}`,
+          result
         );
       } catch (e) {
         return err(e);
@@ -1316,7 +1346,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
             `\n${messages}`,
           ]
             .filter(Boolean)
-            .join("\n")
+            .join("\n"),
+          result
         );
       } catch (e) {
         return err(e);
@@ -1340,7 +1371,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       try {
         const result = await api.updateConversation(conversation_id, metadata);
         return ok(
-          `Conversation updated.\n  ID: ${result.id}\n  Metadata: ${JSON.stringify(result.metadata)}`
+          `Conversation updated.\n  ID: ${result.id}\n  Metadata: ${JSON.stringify(result.metadata)}`,
+          result
         );
       } catch (e) {
         return err(e);
@@ -1365,11 +1397,11 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
     async ({ search, limit, offset }) => {
       try {
         const result = await api.listContacts(limit, offset, search);
-        if (result.data.length === 0) return ok("No contacts found.");
+        if (result.data.length === 0) return ok("No contacts found.", { data: [], total: 0 });
         const formatted = result.data
           .map((c) => `${c.name} — ${c.phoneNumber}${c.email ? ` <${c.email}>` : ""} id=${c.id}`)
           .join("\n");
-        return ok(`${result.data.length} contact(s):\n\n${formatted}\n\nTotal: ${result.total}`);
+        return ok(`${result.data.length} contact(s):\n\n${formatted}\n\nTotal: ${result.total}`, result);
       } catch (e) {
         return err(e);
       }
@@ -1411,7 +1443,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
             return err(new Error("create requires both phone_number and name."));
           }
           const result = await api.createContact({ phoneNumber: phone_number, name, email, notes });
-          return ok(`Contact created: ${result.name} (${result.phoneNumber}) id=${result.id}`);
+          return ok(`Contact created: ${result.name} (${result.phoneNumber}) id=${result.id}`, result);
         }
 
         if (action === "update") {
@@ -1422,13 +1454,13 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           if (email !== undefined) params.email = email;
           if (notes !== undefined) params.notes = notes;
           const result = await api.updateContact(contact_id, params);
-          return ok(`Contact updated: ${result.name} (${result.phoneNumber}) id=${result.id}`);
+          return ok(`Contact updated: ${result.name} (${result.phoneNumber}) id=${result.id}`, result);
         }
 
         // action === "delete"
         if (!contact_id) return err(new Error("delete requires contact_id."));
         await api.deleteContact(contact_id);
-        return ok(`Contact ${contact_id} deleted.`);
+        return ok(`Contact ${contact_id} deleted.`, { success: true });
       } catch (e) {
         return err(e);
       }
@@ -1467,27 +1499,27 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         if (breakdown === "daily") {
           const result = await api.getDailyUsage(days);
           if (result.data.length === 0) {
-            return ok("No usage data for this period.");
+            return ok("No usage data for this period.", { data: [] });
           }
           const formatted = result.data
             .map(
               (d) => `${d.date}: ${d.messages} msgs, ${d.calls} calls, ${d.webhooks} webhooks`
             )
             .join("\n");
-          return ok(`Daily usage (last ${days} days):\n\n${formatted}`);
+          return ok(`Daily usage (last ${days} days):\n\n${formatted}`, result);
         }
 
         if (breakdown === "monthly") {
           const result = await api.getMonthlyUsage(months);
           if (result.data.length === 0) {
-            return ok("No usage data for this period.");
+            return ok("No usage data for this period.", { data: [] });
           }
           const formatted = result.data
             .map(
               (d) => `${d.month}: ${d.messages} msgs, ${d.calls} calls, ${d.webhooks} webhooks`
             )
             .join("\n");
-          return ok(`Monthly usage (last ${months} months):\n\n${formatted}`);
+          return ok(`Monthly usage (last ${months} months):\n\n${formatted}`, result);
         }
 
         // Default: summary
@@ -1513,7 +1545,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           ``,
           `Messaging and voice are billed per use from your credit balance (no plan limits).`,
         ];
-        return ok(lines.join("\n"));
+        return ok(lines.join("\n"), result);
       } catch (e) {
         return err(e);
       }
@@ -1552,11 +1584,12 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           return ok(
             agent_id
               ? "No agent-specific webhook configured. Events go to the project-level webhook."
-              : "No webhook configured."
+              : "No webhook configured.",
+            { configured: false }
           );
         }
         const shown = reveal_secret ? result : { ...result, secret: maskSecret(result.secret) };
-        return ok(JSON.stringify(shown, null, 2));
+        return ok(JSON.stringify(shown, null, 2), shown);
       } catch (e) {
         return err(e);
       }
@@ -1584,7 +1617,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .min(0)
         .max(50)
         .optional()
-        .describe("How many recent messages to include with each webhook as conversation context."),
+        .describe("How many recent messages to include with each webhook as conversation context. If omitted, the server's default context size is used."),
       timeout: z
         .number()
         .optional()
@@ -1603,7 +1636,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         const scope = agent_id ? `Agent ${agent_id}` : "Project";
         const secret = reveal_secret ? result.secret : maskSecret(result.secret);
         return ok(
-          `${scope} webhook set!\n  URL: ${result.url}\n  Secret: ${secret}\n  Status: ${result.status}`
+          `${scope} webhook set!\n  URL: ${result.url}\n  Secret: ${secret}\n  Status: ${result.status}`,
+          { ...result, secret }
         );
       } catch (e) {
         return err(e);
@@ -1628,10 +1662,10 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       try {
         if (agent_id) {
           await api.deleteAgentWebhook(agent_id);
-          return ok("Agent webhook deleted. Events will now go to the project-level webhook.");
+          return ok("Agent webhook deleted. Events will now go to the project-level webhook.", { success: true });
         }
         await api.deleteWebhook();
-        return ok("Project webhook deleted.");
+        return ok("Project webhook deleted.", { success: true });
       } catch (e) {
         return err(e);
       }
@@ -1657,11 +1691,13 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         const scope = agent_id ? "Agent webhook" : "Webhook";
         if (result.success) {
           return ok(
-            `${scope} test successful!\n  Status code: ${result.statusCode}\n  Response time: ${result.responseMs}ms`
+            `${scope} test successful!\n  Status code: ${result.statusCode}\n  Response time: ${result.responseMs}ms`,
+            result
           );
         }
         return ok(
-          `${scope} test failed.\n  Error: ${result.error}\n  Status code: ${result.statusCode}`
+          `${scope} test failed.\n  Error: ${result.error}\n  Status code: ${result.statusCode}`,
+          result
         );
       } catch (e) {
         return err(e);
@@ -1698,7 +1734,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           : await api.listWebhookDeliveries(limit, hours);
 
         if (result.data.length === 0) {
-          return ok("No webhook deliveries found.");
+          return ok("No webhook deliveries found.", { data: [], total: 0 });
         }
 
         const formatted = result.data
@@ -1709,7 +1745,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           .join("\n");
 
         return ok(
-          `${result.data.length} delivery(ies):\n\n${formatted}\n\nTotal: ${result.total}`
+          `${result.data.length} delivery(ies):\n\n${formatted}\n\nTotal: ${result.total}`,
+          result
         );
       } catch (e) {
         return err(e);
