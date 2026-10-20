@@ -398,13 +398,12 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .describe("The message text to send (may be empty when sending media only)"),
       media_url: z
         .string()
-        .url()
         .optional()
-        .describe("Link to a single image or media file to attach to the message."),
+        .describe("Link (URL) to a single image or media file to attach to the message."),
       media_urls: z
-        .array(z.string().url())
+        .array(z.string())
         .optional()
-        .describe("Multiple media URLs to attach (delivered as an image carousel on iMessage)"),
+        .describe("Multiple media links (URLs) to attach, delivered as an image carousel on iMessage."),
       number_id: z
         .string()
         .optional()
@@ -421,12 +420,9 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .optional()
         .describe("iMessage only. ID of an earlier message to reply to inline (threaded reply)"),
       send_style: z
-        .enum([
-          "celebration", "fireworks", "lasers", "love", "confetti", "balloons",
-          "spotlight", "echo", "invisible", "gentle", "loud", "slam",
-        ])
+        .string()
         .optional()
-        .describe("An expressive screen or bubble effect played when the message arrives (iMessage only; ignored on SMS)."),
+        .describe("An expressive screen or bubble effect played when the message arrives (iMessage only; ignored on SMS). One of: celebration, fireworks, lasers, love, confetti, balloons, spotlight, echo, invisible, gentle, loud, slam."),
       react_to_message_id: z
         .string()
         .optional()
@@ -586,9 +582,9 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .optional()
         .describe("Keep only calls in this state, e.g. ringing, in-progress, completed, failed, busy, or no-answer."),
       direction: z
-        .enum(["inbound", "outbound"])
+        .string()
         .optional()
-        .describe("Keep only inbound calls, or only outbound calls."),
+        .describe("Keep only inbound calls or only outbound calls — one of \"inbound\" or \"outbound\"."),
       search: z
         .string()
         .optional()
@@ -752,8 +748,10 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       "and adds AI identity instructions around the topic. No tool argument disables these additions, " +
       "but they do not guarantee the model's behavior. Calls made directly through the AgentPhone API " +
       "or SDKs bypass this connector's disclosure logic.\n" +
-      "By default this blocks until the call finishes and returns the full transcript. " +
-      "Set wait=false for fire-and-forget.",
+      "By default (wait=true) this waits for the call to finish — up to max_wait_seconds — and " +
+      "returns the call with its transcript. If that wait elapses first, it returns the call while " +
+      "it may still be in progress (check later with get_call). With wait=false it returns " +
+      "immediately with the call's ID and status, and you fetch the transcript later with get_call.",
     {
       agent_id: z
         .string()
@@ -804,35 +802,38 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           voice
         );
 
-        if (wait && result.transcripts && result.transcripts.length > 0) {
-          const transcript = result.transcripts
-            .map((t) => {
-              const parts: string[] = [];
-              if (t.transcript) parts.push(`  Human: ${t.transcript}`);
-              if (t.response) parts.push(`  Agent: ${t.response}`);
-              return parts.join("\n");
-            })
-            .filter(Boolean)
-            .join("\n");
+        const transcript = (result.transcripts ?? [])
+          .map((t) => {
+            const parts: string[] = [];
+            if (t.transcript) parts.push(`  Human: ${t.transcript}`);
+            if (t.response) parts.push(`  Agent: ${t.response}`);
+            return parts.join("\n");
+          })
+          .filter(Boolean)
+          .join("\n");
 
-          if (transcript) {
-            return ok(
-              [
-                `Call completed!`,
-                `  From: ${result.fromNumber}`,
-                `  To: ${result.toNumber}`,
-                `  Call ID: ${result.id}`,
-                `  Status: ${result.status}`,
-                result.endedAt ? `  Ended: ${result.endedAt}` : null,
-                ``,
-                `Transcript:`,
-                transcript,
-              ]
-                .filter(Boolean)
-                .join("\n"),
-              result
-            );
-          }
+        if (wait) {
+          // A wait=true request can still time out at max_wait_seconds before
+          // the call ends; endedAt tells us which actually happened, so the
+          // header matches the returned state instead of always claiming "ended".
+          const ended = Boolean(result.endedAt);
+          const lines = [
+            ended ? `Call completed!` : `Call still in progress (the wait elapsed before it ended).`,
+            `  From: ${result.fromNumber}`,
+            `  To: ${result.toNumber}`,
+            `  Call ID: ${result.id}`,
+            `  Status: ${result.status}`,
+            result.endedAt ? `  Ended: ${result.endedAt}` : null,
+            ``,
+            ended
+              ? transcript
+                ? `Transcript:\n${transcript}`
+                : `Call ended but no transcript was recorded.`
+              : transcript
+                ? `Partial transcript so far:\n${transcript}\nUse get_call with the call ID to fetch the full transcript once the call ends.`
+                : `No transcript yet — use get_call with the call ID to fetch it once the call ends.`,
+          ];
+          return ok(lines.filter(Boolean).join("\n"), result);
         }
 
         return ok(
@@ -843,9 +844,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
             `  Call ID: ${result.id}`,
             `  Status: ${result.status}`,
             ``,
-            wait
-              ? `Call ended but no transcript was recorded.`
-              : `The AI will have an autonomous conversation about the topic you provided.\nUse get_call with the call ID to check the transcript once the call ends.`,
+            `The AI will have an autonomous conversation about the topic you provided.\nUse get_call with the call ID to check the transcript once the call ends.`,
           ].join("\n"),
           result
         );
@@ -930,7 +929,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       voice_speed: z
         .number()
         .optional()
-        .describe("How fast the agent speaks, as a multiplier of normal pace (1 is normal, below 1 is slower, above 1 is faster)."),
+        .describe("How fast the agent speaks, as a multiplier of normal pace (1 is normal, below 1 is slower, above 1 is faster). If omitted, the agent uses its default speed."),
       interruption_sensitivity: z
         .number()
         .optional()
@@ -1047,7 +1046,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       voice_speed: z
         .number()
         .optional()
-        .describe("How fast the agent speaks, as a multiplier of normal pace (1 is normal, below 1 is slower, above 1 is faster)."),
+        .describe("How fast the agent speaks, as a multiplier of normal pace (1 is normal, below 1 is slower, above 1 is faster). If omitted, the current speed is unchanged."),
       interruption_sensitivity: z
         .number()
         .optional()
@@ -1401,9 +1400,9 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       phone_number: z
         .string()
         .optional()
-        .describe("Phone number in E.164 format (e.g. +14155551234). Required for 'create'."),
+        .describe("The contact's phone number in full international form with country code (e.g. +14155551234). Required for 'create'."),
       name: z.string().optional().describe("Contact name. Required for 'create'."),
-      email: z.string().email().optional().describe("An email address to save with the contact."),
+      email: z.string().optional().describe("An email address to save with the contact."),
       notes: z.string().optional().describe("Freeform notes to store with the contact, for your reference."),
     },
     { readOnlyHint: false, destructiveHint: true, openWorldHint: false, idempotentHint: false },
