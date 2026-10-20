@@ -209,10 +209,78 @@ test("manage_contact update and delete validate (delete passes the real success 
   assert.equal(del.structuredContent.success, true);
 });
 
-// The adapter's safety net emits {} when a handler omits structured data, so
-// every schema must accept it.
-test("empty {} fallback validates against every output schema", () => {
-  for (const name of Object.keys(OUTPUT_SCHEMAS)) {
-    assert.ok(OUTPUT_SCHEMAS[name].safeParse({}).success, `${name}: {} fallback failed`);
+// There is no structured-content fallback: every success path must return its
+// own structuredContent, and it must satisfy the (now stricter) output schema.
+// Cover the branches the main pass doesn't, so a missing field can't slip
+// through to a runtime throw.
+test("alternate success branches still return schema-valid structured content", async () => {
+  // get_webhook when none is configured
+  let h = harness(makeStub({ getWebhook: async () => null }));
+  let r = await h.call("get_webhook", {});
+  assert.equal(r.isError, undefined);
+  assert.ok(OUTPUT_SCHEMAS.get_webhook.safeParse(r.structuredContent).success, "get_webhook/none");
+
+  // make_conversation_call that completed with a transcript (wait=true)
+  h = harness(makeStub());
+  r = await h.call("make_conversation_call", { agent_id: "agt_1", to_number: "+14155550123", topic: "x", wait: true });
+  assert.equal(r.isError, undefined);
+  assert.ok(OUTPUT_SCHEMAS.make_conversation_call.safeParse(r.structuredContent).success, "mcc/transcript");
+
+  // empty list variants that don't carry a `total`
+  const emptyStub = {
+    getMessages: async () => ({ data: [], hasMore: false }),
+    listVoices: async () => ({ data: [] }),
+    listWebhookDeliveries: async () => ({ data: [], hasMore: false, total: 0 }),
+  };
+  h = harness(makeStub(emptyStub));
+  for (const [name, args] of [["get_messages", { number_id: "num_1" }], ["list_voices", {}], ["list_webhook_deliveries", {}]]) {
+    r = await h.call(name, args);
+    assert.equal(r.isError, undefined, name);
+    assert.ok(r.structuredContent, `${name}: missing structuredContent`);
+    assert.ok(OUTPUT_SCHEMAS[name].safeParse(r.structuredContent).success, `${name}: empty branch`);
+  }
+});
+
+// Every field marked required in the schemas. Enumerated explicitly so that
+// re-optionalizing any one of them fails this test instead of slipping through.
+const REQUIRED = {
+  list_numbers: ["data"],
+  get_messages: ["data"],
+  list_calls: ["data"],
+  list_agents: ["data"],
+  list_voices: ["data"],
+  list_conversations: ["data"],
+  list_contacts: ["data"],
+  list_webhook_deliveries: ["data"],
+  get_call: ["id"],
+  make_call: ["id"],
+  make_conversation_call: ["id"],
+  create_agent: ["id"],
+  update_agent: ["id"],
+  get_agent: ["id"],
+  send_message: ["id"],
+  get_conversation: ["id"],
+  update_conversation: ["id"],
+  delete_agent: ["success", "id", "name"],
+  attach_number: ["agentId", "number"],
+  detach_number: ["success"],
+  delete_webhook: ["success"],
+  test_webhook: ["success", "statusCode", "responseMs", "error"],
+};
+const VAL = { id: "x", name: "x", agentId: "x", data: [], success: true, number: {}, statusCode: null, responseMs: null, error: null };
+
+test("every required output field is enforced (omitting any one fails)", () => {
+  for (const [tool, fields] of Object.entries(REQUIRED)) {
+    const full = Object.fromEntries(fields.map((f) => [f, VAL[f]]));
+    assert.ok(OUTPUT_SCHEMAS[tool].safeParse(full).success, `${tool}: full required object should parse`);
+    for (const f of fields) {
+      const missing = { ...full };
+      delete missing[f];
+      assert.equal(
+        OUTPUT_SCHEMAS[tool].safeParse(missing).success,
+        false,
+        `${tool}.${f} must be required (schema accepted it missing)`
+      );
+    }
   }
 });

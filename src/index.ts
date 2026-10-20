@@ -23,28 +23,6 @@ import { AgentPhoneAPI } from "./api.js";
 import { registerTools, type ToolRegistrar } from "./tools.js";
 import { OUTPUT_SCHEMAS } from "./output-schemas.js";
 
-// Every tool declares an outputSchema, so the SDK requires a structuredContent
-// object on each successful (non-error) result. Handlers supply the real data;
-// this is a safety net so any success path that doesn't still validates against
-// the permissive (all-optional, passthrough) schema instead of throwing.
-function withStructuredFallback<A extends any[]>(
-  handler: (...args: A) => Promise<any>
-): (...args: A) => Promise<any> {
-  return async (...args: A) => {
-    const r = await handler(...args);
-    if (
-      r &&
-      typeof r === "object" &&
-      Array.isArray(r.content) &&
-      !r.isError &&
-      r.structuredContent === undefined
-    ) {
-      return { ...r, structuredContent: {} };
-    }
-    return r;
-  };
-}
-
 const NAME = "agentphone";
 const VERSION = "0.8.0";
 const BASE_URL = (process.env.AGENTPHONE_BASE_URL || "https://api.agentphone.ai").replace(/\/$/, "");
@@ -337,7 +315,7 @@ async function startStdio(): Promise<void> {
       };
       if (TOOL_META[name]?.title) config.title = TOOL_META[name].title;
       if (OUTPUT_SCHEMAS[name]) config.outputSchema = OUTPUT_SCHEMAS[name];
-      (server as any).registerTool(name, config, withStructuredFallback(handler));
+      (server as any).registerTool(name, config, handler);
     },
   };
   registerTools(stdioRegistrar, api);
@@ -577,11 +555,7 @@ async function startHttp(): Promise<void> {
               isError: true,
             } as any;
           }
-          // Same structured-content safety net as the stdio path, via the
-          // shared helper so the two transports can't drift.
-          return withStructuredFallback((p: unknown) =>
-            tokenStore.run(token, () => handler(p as any))
-          )(params) as any;
+          return tokenStore.run(token, () => handler(params as any)) as any;
         }
       );
     },

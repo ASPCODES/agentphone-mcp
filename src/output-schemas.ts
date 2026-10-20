@@ -7,8 +7,9 @@
  * an agent can interpret the result without guessing — and are advertised on
  * tools/list.
  *
- * Shapes mirror the AgentPhone REST responses in api.ts. Every field is
- * optional and each object is `.passthrough()`, for two reasons:
+ * Shapes mirror the AgentPhone REST responses in api.ts. Fields a tool always
+ * returns are marked required; the rest stay optional, and each object is
+ * `.passthrough()`, for two reasons:
  *   1. The structured payload is a faithful superset of the real result, so
  *      backend additions never break validation.
  *   2. Some tools have more than one success shape (e.g. buy_number's
@@ -44,7 +45,7 @@ const agentNumber = z
   .describe("A phone number attached to the agent.");
 
 const agentFields = {
-  id: z.string().optional().describe("The agent's unique ID (use as agent_id elsewhere)."),
+  id: z.string().describe("The agent's unique ID (use as agent_id elsewhere)."),
   name: z.string().optional().describe("Human-readable agent name."),
   description: z.string().nullable().optional().describe("Free-text note about the agent's purpose."),
   voiceMode: z.string().optional().describe("'webhook' (your backend drives calls) or 'hosted' (built-in AI)."),
@@ -69,7 +70,7 @@ const agentFields = {
 const agentObject = z.object(agentFields).passthrough().describe("An AgentPhone agent and its configuration.");
 
 const callFields = {
-  id: z.string().optional().describe("The call's unique ID (use as call_id in get_call)."),
+  id: z.string().describe("The call's unique ID (use as call_id in get_call)."),
   fromNumber: z.string().optional().describe("Caller number in E.164 format."),
   toNumber: z.string().optional().describe("Callee number in E.164 format."),
   direction: z.string().optional().describe("'inbound' or 'outbound'."),
@@ -95,7 +96,7 @@ const callObject = z
   .describe("A phone call and, when available, its transcript.");
 
 const conversationFields = {
-  id: z.string().optional().describe("The conversation's unique ID (use as conversation_id)."),
+  id: z.string().describe("The conversation's unique ID (use as conversation_id)."),
   agentId: z.string().nullable().optional().describe("ID of the agent on this thread, or null."),
   phoneNumberId: z.string().optional().describe("ID of your phone number in this thread."),
   phoneNumber: z.string().optional().describe("Your number in E.164 format."),
@@ -210,7 +211,7 @@ export const OUTPUT_SCHEMAS: Record<string, z.ZodTypeAny> = {
 
   list_numbers: z
     .object({
-      data: z.array(z.object(numberFields).passthrough().describe("A phone number in the account.")).optional().describe("The phone numbers on this page."),
+      data: z.array(z.object(numberFields).passthrough().describe("A phone number in the account.")).describe("The phone numbers on this page."),
       ...listMeta,
     })
     .passthrough()
@@ -226,7 +227,7 @@ export const OUTPUT_SCHEMAS: Record<string, z.ZodTypeAny> = {
 
   send_message: z
     .object({
-      id: z.string().optional().describe("The sent message's ID (or the reaction's ID)."),
+      id: z.string().describe("The sent message's ID (or the reaction's ID)."),
       status: z.string().optional().describe("Delivery status of the message."),
       channel: z.string().nullable().optional().describe("Channel used: sms or imessage, or null."),
       from_number: z.string().optional().describe("Number the message was sent from."),
@@ -242,14 +243,14 @@ export const OUTPUT_SCHEMAS: Record<string, z.ZodTypeAny> = {
 
   get_messages: z
     .object({
-      data: z.array(messageEntry).optional().describe("Messages for the number, newest first."),
+      data: z.array(messageEntry).describe("Messages for the number, newest first."),
       ...listMeta,
     })
     .passthrough()
     .describe("Messages for a specific phone number."),
 
   list_calls: z
-    .object({ data: z.array(callObject).optional().describe("Calls on this page."), ...listMeta })
+    .object({ data: z.array(callObject).describe("Calls on this page."), ...listMeta })
     .passthrough()
     .describe("A page of calls."),
 
@@ -260,7 +261,7 @@ export const OUTPUT_SCHEMAS: Record<string, z.ZodTypeAny> = {
   make_conversation_call: callObject.describe("The call, with transcript turns when available."),
 
   list_agents: z
-    .object({ data: z.array(agentObject).optional().describe("Agents on this page."), ...listMeta })
+    .object({ data: z.array(agentObject).describe("Agents on this page."), ...listMeta })
     .passthrough()
     .describe("A page of agents."),
 
@@ -270,9 +271,9 @@ export const OUTPUT_SCHEMAS: Record<string, z.ZodTypeAny> = {
 
   delete_agent: z
     .object({
-      success: z.boolean().optional().describe("Whether the delete succeeded."),
-      id: z.string().optional().describe("ID of the deleted agent."),
-      name: z.string().optional().describe("Name of the deleted agent."),
+      success: z.boolean().describe("Whether the delete succeeded."),
+      id: z.string().describe("ID of the deleted agent."),
+      name: z.string().describe("Name of the deleted agent."),
     })
     .passthrough()
     .describe("Confirmation of the deleted agent."),
@@ -281,25 +282,25 @@ export const OUTPUT_SCHEMAS: Record<string, z.ZodTypeAny> = {
 
   attach_number: z
     .object({
-      agentId: z.string().optional().describe("ID of the agent the number was attached to."),
-      number: agentNumber.optional().describe("The attached phone number."),
+      agentId: z.string().describe("ID of the agent the number was attached to."),
+      number: agentNumber.describe("The attached phone number."),
     })
     .passthrough()
     .describe("The attachment result: the number and the agent it now belongs to."),
 
   detach_number: z
-    .object({ success: z.boolean().optional().describe("Whether the detach succeeded.") })
+    .object({ success: z.boolean().describe("Whether the detach succeeded.") })
     .passthrough()
     .describe("Confirmation that the number was detached."),
 
   list_voices: z
-    .object({ data: z.array(voiceEntry).optional().describe("Available voices.") })
+    .object({ data: z.array(voiceEntry).describe("Available voices.") })
     .passthrough()
     .describe("Voices available for agents."),
 
   list_conversations: z
     .object({
-      data: z.array(z.object(conversationFields).passthrough().describe("An SMS conversation thread.")).optional().describe("Conversations on this page."),
+      data: z.array(z.object(conversationFields).passthrough().describe("An SMS conversation thread.")).describe("Conversations on this page."),
       ...listMeta,
     })
     .passthrough()
@@ -317,7 +318,7 @@ export const OUTPUT_SCHEMAS: Record<string, z.ZodTypeAny> = {
 
   list_contacts: z
     .object({
-      data: z.array(z.object(contactFields).passthrough().describe("A saved contact.")).optional().describe("Contacts on this page."),
+      data: z.array(z.object(contactFields).passthrough().describe("A saved contact.")).describe("Contacts on this page."),
       ...listMeta,
     })
     .passthrough()
@@ -370,22 +371,22 @@ export const OUTPUT_SCHEMAS: Record<string, z.ZodTypeAny> = {
   set_webhook: z.object(webhookFields).passthrough().describe("The saved webhook (secret masked unless reveal_secret=true)."),
 
   delete_webhook: z
-    .object({ success: z.boolean().optional().describe("Whether the delete succeeded.") })
+    .object({ success: z.boolean().describe("Whether the delete succeeded.") })
     .passthrough()
     .describe("Confirmation that the webhook was removed."),
 
   test_webhook: z
     .object({
-      success: z.boolean().optional().describe("Whether the test event was delivered."),
-      statusCode: z.number().nullable().optional().describe("HTTP status your endpoint returned, or null."),
-      responseMs: z.number().nullable().optional().describe("Your endpoint's response time in ms, or null."),
-      error: z.string().nullable().optional().describe("Error message if the test failed, or null."),
+      success: z.boolean().describe("Whether the test event was delivered."),
+      statusCode: z.number().nullable().describe("HTTP status your endpoint returned, or null."),
+      responseMs: z.number().nullable().describe("Your endpoint's response time in ms, or null."),
+      error: z.string().nullable().describe("Error message if the test failed, or null."),
     })
     .passthrough()
     .describe("The result of sending a test event to the webhook."),
 
   list_webhook_deliveries: z
-    .object({ data: z.array(deliveryEntry).optional().describe("Recent delivery attempts."), ...listMeta })
+    .object({ data: z.array(deliveryEntry).describe("Recent delivery attempts."), ...listMeta })
     .passthrough()
     .describe("A page of webhook delivery history."),
 };
