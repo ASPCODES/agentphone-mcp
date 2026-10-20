@@ -137,6 +137,24 @@ test("each handler's structuredContent validates against its output schema", asy
   }
 });
 
+test("make_conversation_call wait=true text matches ended/transcript state", async () => {
+  const base = { id: "c", fromNumber: "+1", toNumber: "+2", direction: "outbound", status: "x", startedAt: "t", retellCallId: null };
+  const T = [{ id: "t1", transcript: "hi", response: "hello", createdAt: "t" }];
+  const cases = [
+    { endedAt: "t", transcripts: T, expect: [/Call completed!/, /Transcript:/], notExpect: [/in progress/] },
+    { endedAt: "t", transcripts: [], expect: [/Call completed!/, /no transcript was recorded/], notExpect: [/in progress/] },
+    { endedAt: null, transcripts: T, expect: [/still in progress/, /Partial transcript so far/, /get_call/], notExpect: [/completed!/] },
+    { endedAt: null, transcripts: [], expect: [/still in progress/, /No transcript yet/, /get_call/], notExpect: [/completed!/] },
+  ];
+  for (const c of cases) {
+    const h = harness(makeStub({ makeConversationCall: async () => ({ ...base, endedAt: c.endedAt, transcripts: c.transcripts }) }));
+    const r = await h.call("make_conversation_call", { agent_id: "a", to_number: "+14155550123", topic: "x", wait: true });
+    const text = r.content[0].text;
+    for (const re of c.expect) assert.match(text, re, `ended=${c.endedAt}, turns=${c.transcripts.length}: expected ${re}`);
+    for (const re of c.notExpect) assert.doesNotMatch(text, re, `ended=${c.endedAt}, turns=${c.transcripts.length}: should not match ${re}`);
+  }
+});
+
 test("send_message reaction mode also validates", async () => {
   const h = harness(makeStub());
   const r = await h.call("send_message", { react_to_message_id: "m1", reaction: "love" });

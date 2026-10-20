@@ -825,10 +825,12 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
             `  Status: ${result.status}`,
             result.endedAt ? `  Ended: ${result.endedAt}` : null,
             ``,
-            transcript
-              ? `Transcript:\n${transcript}`
-              : ended
-                ? `Call ended but no transcript was recorded.`
+            ended
+              ? transcript
+                ? `Transcript:\n${transcript}`
+                : `Call ended but no transcript was recorded.`
+              : transcript
+                ? `Partial transcript so far:\n${transcript}\nUse get_call with the call ID to fetch the full transcript once the call ends.`
                 : `No transcript yet — use get_call with the call ID to fetch it once the call ends.`,
           ];
           return ok(lines.filter(Boolean).join("\n"), result);
