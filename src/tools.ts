@@ -802,35 +802,36 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           voice
         );
 
-        if (wait && result.transcripts && result.transcripts.length > 0) {
-          const transcript = result.transcripts
-            .map((t) => {
-              const parts: string[] = [];
-              if (t.transcript) parts.push(`  Human: ${t.transcript}`);
-              if (t.response) parts.push(`  Agent: ${t.response}`);
-              return parts.join("\n");
-            })
-            .filter(Boolean)
-            .join("\n");
+        const transcript = (result.transcripts ?? [])
+          .map((t) => {
+            const parts: string[] = [];
+            if (t.transcript) parts.push(`  Human: ${t.transcript}`);
+            if (t.response) parts.push(`  Agent: ${t.response}`);
+            return parts.join("\n");
+          })
+          .filter(Boolean)
+          .join("\n");
 
-          if (transcript) {
-            return ok(
-              [
-                `Call completed!`,
-                `  From: ${result.fromNumber}`,
-                `  To: ${result.toNumber}`,
-                `  Call ID: ${result.id}`,
-                `  Status: ${result.status}`,
-                result.endedAt ? `  Ended: ${result.endedAt}` : null,
-                ``,
-                `Transcript:`,
-                transcript,
-              ]
-                .filter(Boolean)
-                .join("\n"),
-              result
-            );
-          }
+        if (wait) {
+          // A wait=true request can still time out at max_wait_seconds before
+          // the call ends; endedAt tells us which actually happened, so the
+          // header matches the returned state instead of always claiming "ended".
+          const ended = Boolean(result.endedAt);
+          const lines = [
+            ended ? `Call completed!` : `Call still in progress (the wait elapsed before it ended).`,
+            `  From: ${result.fromNumber}`,
+            `  To: ${result.toNumber}`,
+            `  Call ID: ${result.id}`,
+            `  Status: ${result.status}`,
+            result.endedAt ? `  Ended: ${result.endedAt}` : null,
+            ``,
+            transcript
+              ? `Transcript:\n${transcript}`
+              : ended
+                ? `Call ended but no transcript was recorded.`
+                : `No transcript yet — use get_call with the call ID to fetch it once the call ends.`,
+          ];
+          return ok(lines.filter(Boolean).join("\n"), result);
         }
 
         return ok(
@@ -841,9 +842,7 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
             `  Call ID: ${result.id}`,
             `  Status: ${result.status}`,
             ``,
-            wait
-              ? `Call ended but no transcript was recorded.`
-              : `The AI will have an autonomous conversation about the topic you provided.\nUse get_call with the call ID to check the transcript once the call ends.`,
+            `The AI will have an autonomous conversation about the topic you provided.\nUse get_call with the call ID to check the transcript once the call ends.`,
           ].join("\n"),
           result
         );
