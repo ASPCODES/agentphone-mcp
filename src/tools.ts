@@ -401,9 +401,9 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .optional()
         .describe("Link (URL) to a single image or media file to attach to the message."),
       media_urls: z
-        .array(z.string().url())
+        .array(z.string())
         .optional()
-        .describe("Multiple media URLs to attach (delivered as an image carousel on iMessage)"),
+        .describe("Multiple media links (URLs) to attach, delivered as an image carousel on iMessage."),
       number_id: z
         .string()
         .optional()
@@ -748,9 +748,10 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       "and adds AI identity instructions around the topic. No tool argument disables these additions, " +
       "but they do not guarantee the model's behavior. Calls made directly through the AgentPhone API " +
       "or SDKs bypass this connector's disclosure logic.\n" +
-      "By default (wait=true) this blocks until the call ends and returns the call with its full " +
-      "transcript. With wait=false it returns immediately with the call's ID and status, and you " +
-      "fetch the transcript later with get_call.",
+      "By default (wait=true) this waits for the call to finish — up to max_wait_seconds — and " +
+      "returns the call with its transcript. If that wait elapses first, it returns the call while " +
+      "it may still be in progress (check later with get_call). With wait=false it returns " +
+      "immediately with the call's ID and status, and you fetch the transcript later with get_call.",
     {
       agent_id: z
         .string()
