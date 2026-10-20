@@ -7,8 +7,9 @@
  * an agent can interpret the result without guessing — and are advertised on
  * tools/list.
  *
- * Shapes mirror the AgentPhone REST responses in api.ts. Every field is
- * optional and each object is `.passthrough()`, for two reasons:
+ * Shapes mirror the AgentPhone REST responses in api.ts. Fields a tool always
+ * returns are marked required; the rest stay optional, and each object is
+ * `.passthrough()`, for two reasons:
  *   1. The structured payload is a faithful superset of the real result, so
  *      backend additions never break validation.
  *   2. Some tools have more than one success shape (e.g. buy_number's

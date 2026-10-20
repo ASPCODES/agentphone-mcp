@@ -241,10 +241,46 @@ test("alternate success branches still return schema-valid structured content", 
   }
 });
 
-// Guaranteed fields are now required in the schema; confirm the schema rejects
-// their absence (so the "required" promise is real, not cosmetic).
-test("required output fields are enforced", () => {
-  assert.equal(OUTPUT_SCHEMAS.delete_agent.safeParse({}).success, false);
-  assert.equal(OUTPUT_SCHEMAS.list_numbers.safeParse({}).success, false);
-  assert.equal(OUTPUT_SCHEMAS.detach_number.safeParse({}).success, false);
+// Every field marked required in the schemas. Enumerated explicitly so that
+// re-optionalizing any one of them fails this test instead of slipping through.
+const REQUIRED = {
+  list_numbers: ["data"],
+  get_messages: ["data"],
+  list_calls: ["data"],
+  list_agents: ["data"],
+  list_voices: ["data"],
+  list_conversations: ["data"],
+  list_contacts: ["data"],
+  list_webhook_deliveries: ["data"],
+  get_call: ["id"],
+  make_call: ["id"],
+  make_conversation_call: ["id"],
+  create_agent: ["id"],
+  update_agent: ["id"],
+  get_agent: ["id"],
+  send_message: ["id"],
+  get_conversation: ["id"],
+  update_conversation: ["id"],
+  delete_agent: ["success", "id", "name"],
+  attach_number: ["agentId", "number"],
+  detach_number: ["success"],
+  delete_webhook: ["success"],
+  test_webhook: ["success", "statusCode", "responseMs", "error"],
+};
+const VAL = { id: "x", name: "x", agentId: "x", data: [], success: true, number: {}, statusCode: null, responseMs: null, error: null };
+
+test("every required output field is enforced (omitting any one fails)", () => {
+  for (const [tool, fields] of Object.entries(REQUIRED)) {
+    const full = Object.fromEntries(fields.map((f) => [f, VAL[f]]));
+    assert.ok(OUTPUT_SCHEMAS[tool].safeParse(full).success, `${tool}: full required object should parse`);
+    for (const f of fields) {
+      const missing = { ...full };
+      delete missing[f];
+      assert.equal(
+        OUTPUT_SCHEMAS[tool].safeParse(missing).success,
+        false,
+        `${tool}.${f} must be required (schema accepted it missing)`
+      );
+    }
+  }
 });
