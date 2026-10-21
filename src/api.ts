@@ -126,7 +126,9 @@ export class AgentPhoneAPI {
 
   async sendMessage(params: {
     agentId?: string;
-    toNumber: string;
+    toNumber?: string;
+    recipients?: string[];   // (iMessage group creation)
+    channel?: "whatsapp";    // (force WhatsApp)
     body: string;
     mediaUrl?: string;
     mediaUrls?: string[];
@@ -147,6 +149,8 @@ export class AgentPhoneAPI {
     }>("POST", "/v1/messages", {
       agent_id: params.agentId,
       to_number: params.toNumber,
+      recipients: params.recipients,
+      channel: params.channel,
       body: params.body,
       media_url: params.mediaUrl,
       media_urls: params.mediaUrls,
