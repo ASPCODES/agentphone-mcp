@@ -505,8 +505,13 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         if (phoneErr) return err(new Error(phoneErr));
       }
       for (const r of recipients ?? []) {
-        const rErr = validateE164(r);
-        if (rErr) return err(new Error(`recipients: ${rErr}`));
+        if (!r.trim()) {
+          return err(new Error("recipients must not contain empty values."));
+        }
+        if (r.startsWith("+") || /^\d[\d\s().-]*$/.test(r)) {
+          const rErr = validateE164(r);
+          if (rErr) return err(new Error(`recipients: ${rErr}`));
+        }
       }
       if (from_number) {
         const fromErr = validateE164(from_number);

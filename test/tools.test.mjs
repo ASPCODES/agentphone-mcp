@@ -188,7 +188,7 @@ test("send_message enforces the 2 to 32 member group limit", async (t) => {
   }
 });
 
-test("send_message validates every group recipient as E.164", async (t) => {
+test("send_message validates phone recipients and rejects empty group entries", async (t) => {
   for (const invalidRecipient of ["4155550101", ""]) {
     await t.test(JSON.stringify(invalidRecipient), async () => {
       const h = harness();
@@ -197,10 +197,37 @@ test("send_message validates every group recipient as E.164", async (t) => {
         recipients: ["+14155550101", invalidRecipient],
       });
       assert.equal(result.isError, true);
-      assert.match(result.content[0].text, /recipients: Phone number must be in E\.164 format/);
+      assert.match(
+        result.content[0].text,
+        invalidRecipient
+          ? /recipients: Phone number must be in E\.164 format/
+          : /recipients must not contain empty values/,
+      );
       assert.deepEqual(h.calls, []);
     });
   }
+});
+
+test("send_message accepts iMessage email and group identifiers as recipients", async () => {
+  const h = harness({
+    sendMessage: async () => ({
+      id: "m_1",
+      status: "queued",
+      channel: "imessage",
+      from_number: "+14155550000",
+      to_number: "group",
+      media_urls: [],
+      reply_to_message_id: null,
+      reply_parent_unresolved: null,
+    }),
+  });
+  const recipients = ["sam@example.com", "grp_123"];
+  const result = await h.call("send_message", {
+    agent_id: "agt_1",
+    recipients,
+  });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(h.calls[0].args[0].recipients, recipients);
 });
 
 test("send_message accepts non-whatsapp channel strings for API validation", async () => {
