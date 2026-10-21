@@ -133,7 +133,8 @@ export function installConciseValidation(nativeServer: unknown): boolean {
     if (!tool?.inputSchema) return undefined;
     const schemaToParse =
       normalizeObjectSchema(tool.inputSchema) ?? tool.inputSchema;
-    const result = (await safeParseAsync(schemaToParse, args)) as {
+    const validationArgs = args ?? {};
+    const result = (await safeParseAsync(schemaToParse, validationArgs)) as {
       success: boolean;
       data?: unknown;
       error?: {
@@ -143,7 +144,7 @@ export function installConciseValidation(nativeServer: unknown): boolean {
     if (!result.success) {
       const issues = result.error?.issues ?? [];
       const summary =
-        issues.map((i) => describeValidationIssue(i, args)).join("; ") ||
+        issues.map((i) => describeValidationIssue(i, validationArgs)).join("; ") ||
         "one or more arguments are invalid";
       // Throw a plain Error, not the SDK's McpError: HTTP sessions run mcp-use's
       // nested SDK copy, whose `instanceof McpError` wouldn't recognize a class

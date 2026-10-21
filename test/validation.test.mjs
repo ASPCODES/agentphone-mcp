@@ -24,6 +24,11 @@ test("bad arguments produce a concise message, not a raw Zod dump", async () => 
     { inputSchema: { number_id: z.string(), limit: z.number().optional() } },
     async () => ({ content: [{ type: "text", text: "ok" }] }),
   );
+  server.registerTool(
+    "no_args",
+    { inputSchema: {} },
+    async () => ({ content: [{ type: "text", text: "ok" }] }),
+  );
 
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
@@ -53,6 +58,9 @@ test("bad arguments produce a concise message, not a raw Zod dump", async () => 
     arguments: { number_id: "x" },
   });
   assert.notEqual(good.isError, true);
+
+  const noArgs = await client.callTool({ name: "no_args" });
+  assert.notEqual(noArgs.isError, true);
 
   await client.close();
 });
