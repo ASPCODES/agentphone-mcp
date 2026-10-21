@@ -396,9 +396,9 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         .optional()
         .describe("Start a NEW iMessage group chat with 2 to 32 members (e.g. ['+14155550101', '+14155550102']). Mutually exclusive with to_number."),
       channel: z
-        .enum(["whatsapp"])
+        .string()
         .optional()
-        .describe("Force delivery via the account's WhatsApp binding rather than dynamic iMessage routing."),
+        .describe("Currently supports 'whatsapp' to force delivery via the account's WhatsApp binding rather than dynamic iMessage routing."),
       body: z
         .string()
         .optional()
@@ -482,8 +482,14 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         }
       }
 
+      if (recipients?.length && channel) {
+        return err(new Error("channel cannot be used with recipients to start a new iMessage group chat."));
+      }
       if (!agent_id && !from_number && !number_id) {
         return err(new Error("Provide agent_id, from_number, or number_id to identify the sender."));
+      }
+      if (recipients?.length && (recipients.length < 2 || recipients.length > 32)) {
+        return err(new Error("recipients must have 2 to 32 members to start a group chat."));
       }
       if (!to_number && (!recipients || recipients.length === 0)) {
         return err(new Error("Either to_number or recipients must be provided when sending a message."));
@@ -498,11 +504,9 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
         const phoneErr = validateE164(to_number);
         if (phoneErr) return err(new Error(phoneErr));
       }
-      for (const r of recipients?? []) {
-        if (r.startsWith("+")) {
-          const rErr = validateE164(r);
-          if (rErr) return err(new Error(`recipients: ${rErr}`));
-        }
+      for (const r of recipients ?? []) {
+        const rErr = validateE164(r);
+        if (rErr) return err(new Error(`recipients: ${rErr}`));
       }
       if (from_number) {
         const fromErr = validateE164(from_number);
@@ -510,10 +514,8 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
       }
 
       try {
-        const result = await api.sendMessage({
+        const params = {
           agentId: agent_id,
-          toNumber: to_number,
-          recipients,
           channel,
           body,
           mediaUrl: media_url,
@@ -522,7 +524,16 @@ export function registerTools(server: ToolRegistrar, api: AgentPhoneAPI): void {
           fromNumber: from_number,
           replyToMessageId: reply_to_message_id,
           sendStyle: send_style,
-        });
+        };
+        const destination = recipients?.length
+          ? { recipients }
+          : to_number
+            ? { toNumber: to_number }
+            : null;
+        if (!destination) {
+          return err(new Error("Either to_number or recipients must be provided when sending a message."));
+        }
+        const result = await api.sendMessage({ ...params, ...destination });
         const lines = [
           `Message sent!`,
           `  From: ${result.from_number}`,
