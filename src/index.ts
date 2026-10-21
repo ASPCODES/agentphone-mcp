@@ -21,16 +21,71 @@ import { normalizeObjectSchema, safeParseAsync } from "@modelcontextprotocol/sdk
 import { z } from "zod";
 import { AgentPhoneAPI } from "./api.js";
 import { registerTools, type ToolRegistrar } from "./tools.js";
+import { OUTPUT_SCHEMAS } from "./output-schemas.js";
 
 const NAME = "agentphone";
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 const BASE_URL = (process.env.AGENTPHONE_BASE_URL || "https://api.agentphone.ai").replace(/\/$/, "");
-const PORT = parseInt(process.env.PORT || "3000", 10);
+
+// Server handshake metadata surfaced in the MCP initialize/discovery response
+// (serverInfo title/websiteUrl/icons, plus server-wide instructions). mcp-use
+// (HTTP) and the SDK McpServer (stdio) both read these fields.
+const TITLE = "AgentPhone";
+const DESCRIPTION =
+  "Give AI agents real phone numbers, SMS, and voice calls. Buy US/Canada numbers, " +
+  "send and receive texts (SMS and iMessage), and place automated voice calls where a " +
+  "built-in AI holds the conversation and returns a transcript — all through AgentPhone.";
+const WEBSITE_URL = "https://docs.agentphone.ai/mcp";
+const ICONS = [
+  { src: "https://agentphone.ai/logo.png", mimeType: "image/png", sizes: ["943x960"] },
+];
+// Server-wide guidance for agents: cross-tool workflow, where IDs come from, and
+// which actions cost money or can't be undone. Kept distinct from the per-tool
+// descriptions so it adds orientation rather than repeating them.
+const INSTRUCTIONS = [
+  "AgentPhone gives you phone numbers and lets you text and call through them.",
+  "",
+  "Start with account_overview to see existing agents, numbers, webhook, and usage. The agent " +
+    "IDs and number IDs it returns are the values the other tools expect.",
+  "",
+  "Setup: create_agent makes an agent (the entity that owns numbers and handles calls and texts). " +
+    "buy_number provisions a number — a paid purchase that spends account balance and requires " +
+    "confirm=true. attach_number links a number to an agent. list_voices gives the voice IDs you " +
+    "can set on an agent.",
+  "",
+  "Messaging: send_message sends an SMS or iMessage from one of your numbers. get_messages, " +
+    "list_conversations, and get_conversation read history.",
+  "",
+  "Calling: make_conversation_call is the simplest way to place an automated call — the built-in " +
+    "AI pursues a topic you give it and returns the transcript, with no webhook needed. make_call " +
+    "is for webhook-driven flows you control. The connector prepends an AI disclosure to the " +
+    "greeting of calls its call tools place, and no tool argument disables it; calls placed " +
+    "directly through the AgentPhone API or SDKs bypass it.",
+  "",
+  "Billing and irreversible actions: buy_number, calls, and messages are billed per use. " +
+    "delete_agent and manage_contact with action=delete cannot be undone. Deleting a webhook is " +
+    "reversible — set_webhook restores it.",
+  "",
+  "Use IDs returned by account_overview, create_agent, buy_number, or the relevant list_* tools " +
+    "before calling anything that takes an agent_id, number_id, conversation_id, or call_id.",
+].join("\n");
 
 // Hosted platforms (Manufact, etc.) set PORT. Local MCP clients launch the bare
 // command with a clean env and expect stdio. `--http` / `--stdio` force a mode.
 const args = process.argv.slice(2);
 const httpMode = args.includes("--http") || (!args.includes("--stdio") && !!process.env.PORT);
+const portIndex = args.findIndex((arg) => arg === "--port" || arg.startsWith("--port="));
+const portValue = portIndex === -1
+  ? process.env.PORT || "3000"
+  : args[portIndex].startsWith("--port=")
+    ? args[portIndex].slice("--port=".length)
+    : args[portIndex + 1];
+const PORT = Number(portValue);
+if (httpMode && (!portValue || !/^\d+$/.test(portValue) || !Number.isInteger(PORT) || PORT < 1 || PORT > 65535)) {
+  console.error("Invalid port: expected an integer between 1 and 65535 (--port or PORT).");
+  process.exit(1);
+}
+
 
 // mcp-use controls its Inspector and other development features through
 // NODE_ENV. Let the dedicated Inspector flag take precedence, otherwise honor
@@ -223,7 +278,7 @@ function installConciseValidation(nativeServer: unknown): void {
 }
 
 async function startStdio(): Promise<void> {
-  const apiKey = process.env.AGENTPHONE_API_KEY;
+  const apiKey = process.env.AGENTPHONE_API_KEY?.trim();
   if (!apiKey) {
     console.error("AGENTPHONE_API_KEY environment variable is required for stdio mode");
     process.exit(1);
@@ -232,10 +287,38 @@ async function startStdio(): Promise<void> {
   const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
 
   const api = new AgentPhoneAPI(BASE_URL, apiKey);
-  const server = new McpServer({ name: NAME, version: VERSION });
+  const server = new McpServer(
+    { name: NAME, title: TITLE, version: VERSION, description: DESCRIPTION, websiteUrl: WEBSITE_URL, icons: ICONS },
+    { instructions: INSTRUCTIONS }
+  );
   installConciseValidation(server);
-  // McpServer.tool's signature matches ToolRegistrar exactly.
-  registerTools(server as unknown as ToolRegistrar, api);
+  // Adapter: register each tool via registerTool so it can carry a title and an
+  // outputSchema (the legacy .tool() overloads can't). Keeps tools.ts's
+  // (name, description, schema, annotations, handler) call shape unchanged.
+  const stdioRegistrar: ToolRegistrar = {
+    tool(
+      name: string,
+      description: string,
+      schema: Record<string, z.ZodTypeAny>,
+      annotationsOrHandler: Record<string, unknown> | ((args: any) => Promise<any>),
+      maybeHandler?: (args: any) => Promise<any>
+    ): void {
+      const handler = (
+        typeof annotationsOrHandler === "function" ? annotationsOrHandler : maybeHandler
+      )!;
+      const annotations =
+        typeof annotationsOrHandler === "function" ? {} : annotationsOrHandler;
+      const config: Record<string, unknown> = {
+        description,
+        inputSchema: schema ?? {},
+        annotations,
+      };
+      if (TOOL_META[name]?.title) config.title = TOOL_META[name].title;
+      if (OUTPUT_SCHEMAS[name]) config.outputSchema = OUTPUT_SCHEMAS[name];
+      (server as any).registerTool(name, config, handler);
+    },
+  };
+  registerTools(stdioRegistrar, api);
   await server.connect(new StdioServerTransport());
 }
 
@@ -246,50 +329,59 @@ async function startStdio(): Promise<void> {
 async function verifyTokenAgainstBackend(
   token: string
 ): Promise<{ payload: Record<string, unknown> }> {
-  // Our AS signs HS256 session JWTs (not JWKS), so validate via the backend.
-  const res = await fetch(`${BASE_URL}/auth/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`Token verification failed (${res.status})`);
-  const data: any = await res.json().catch(() => ({}));
-  const user = data.user ?? data;
-  // Spread the raw response first so our derived identity fields win — a
-  // top-level `sub`/`email` in /auth/me must not override the user's id.
-  return {
-    payload: {
-      ...data,
-      sub: String(user?.id ?? user?.user_id ?? "unknown"),
-      email: user?.email,
-      name: user?.name,
-    },
-  };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12_000); // 12 s
+
+  try {
+    const res = await fetch(`${BASE_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Token verification failed (${res.status})`);
+    const data: any = await res.json().catch((err) => {
+      if (err?.name === "AbortError") throw err;
+      return {};
+    });
+    const user = data.user ?? data;
+    return {
+      payload: {
+        ...data,
+        sub: String(user?.id ?? user?.user_id ?? "unknown"),
+        email: user?.email,
+        name: user?.name,
+      },
+    };
+  } catch (err: any) {
+    if (err?.name === "AbortError") {
+      throw new Error("Token verification timed out", { cause: err });
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout)
+  }
 }
+
 
 async function startHttp(): Promise<void> {
   const { MCPServer, oauthProxy, getRequestContext } = await import("mcp-use/server");
 
-  // Extract a Bearer token from the raw request when OAuth isn't configured.
-  // ctx.auth is only populated by the OAuth proxy flow; for the documented
-  // direct-API-key setup (Authorization: Bearer <key>, no OAuth), we must read
-  // the header ourselves or every call falls back to "" and 401s.
-  const bearerFromHeader = (): string => {
+  // Preserve header presence: malformed credentials must never be treated as
+  // an anonymous request and replaced with the server's credential. null means
+  // the request context is unavailable; only undefined means a missing header.
+  const authorizationHeader = (): string | undefined | null => {
     try {
       const c: any = getRequestContext();
-      const raw: string = c?.req?.header?.("authorization") ?? "";
-      return raw.toLowerCase().startsWith("bearer ") ? raw.slice(7).trim() : "";
+      if (typeof c?.req?.header !== "function") return null;
+      return c.req.header("authorization");
     } catch {
-      return "";
+      return null;
     }
   };
 
-  // Per-request credential: the framework passes ctx.auth (verified user + raw
-  // access token). We stash the token in AsyncLocalStorage so the shared API
-  // client forwards the right credential without threading it through 28 tools.
+  // Only the tool-call boundary chooses credentials. The shared API client
+  // must not independently fall back to the server's account.
   const tokenStore = new AsyncLocalStorage<string>();
-  const api = new AgentPhoneAPI(
-    BASE_URL,
-    () => tokenStore.getStore() || process.env.AGENTPHONE_API_KEY || ""
-  );
+  const api = new AgentPhoneAPI(BASE_URL, () => tokenStore.getStore() || "");
 
   const clientId = process.env.MCP_OAUTH_CLIENT_ID;
   // Secret is optional: when the gateway client is registered as a PUBLIC client
@@ -313,11 +405,36 @@ async function startHttp(): Promise<void> {
         "AgentPhone AS with token_endpoint_auth_method=none."
     );
   }
-  const hasServerApiKey = Boolean(process.env.AGENTPHONE_API_KEY);
+  const serverApiKey = process.env.AGENTPHONE_API_KEY?.trim() || "";
+  const hasServerApiKey = Boolean(serverApiKey);
+  // Without OAuth, a request that carries no Bearer token used to fall back to
+  // the server's own AGENTPHONE_API_KEY, so anyone who could reach the port got
+  // the whole account (calls, SMS, number purchases, agent deletion). That is
+  // now opt-in: set AGENTPHONE_ALLOW_ANONYMOUS=true to restore it for a
+  // single-tenant deployment you have deliberately put behind your own auth.
+  const anonymousRequested = process.env.AGENTPHONE_ALLOW_ANONYMOUS === "true";
+  const allowAnonymous = !oauthEnabled && anonymousRequested;
+  if (anonymousRequested && oauthEnabled) {
+    console.error("AGENTPHONE_ALLOW_ANONYMOUS is ignored because OAuth is enabled; caller authentication is required.");
+  } else if (allowAnonymous && !hasServerApiKey) {
+    console.error("AGENTPHONE_ALLOW_ANONYMOUS requires a non-empty AGENTPHONE_API_KEY; caller authentication is required.");
+  } else if (hasServerApiKey && !allowAnonymous) {
+    console.error("AGENTPHONE_API_KEY is not used for HTTP callers; each request must provide its own bearer credential.");
+  } else if (allowAnonymous && hasServerApiKey) {
+    console.error(
+      "AGENTPHONE_ALLOW_ANONYMOUS=true: requests with no Authorization header will use the " +
+        "server's AGENTPHONE_API_KEY. Anyone who can reach this port can act as this account."
+    );
+  }
 
   const server = new MCPServer({
     name: NAME,
     version: VERSION,
+    title: TITLE,
+    description: DESCRIPTION,
+    instructions: INSTRUCTIONS,
+    websiteUrl: WEBSITE_URL,
+    icons: ICONS,
     ...(oauthEnabled
       ? {
           oauth: oauthProxy({
@@ -354,11 +471,14 @@ async function startHttp(): Promise<void> {
       protocolVersion: LATEST_PROTOCOL_VERSION,
       serverInfo: {
         name: NAME,
-        title: "AgentPhone MCP Server",
+        title: TITLE,
         version: VERSION,
+        websiteUrl: WEBSITE_URL,
+        icons: ICONS,
       },
-      description: "Give AI agents phone numbers, SMS, and voice calls.",
-      documentationUrl: "https://docs.agentphone.ai/mcp",
+      description: DESCRIPTION,
+      instructions: INSTRUCTIONS,
+      documentationUrl: WEBSITE_URL,
       transport: {
         type: "streamable-http",
         endpoint: "/mcp",
@@ -367,7 +487,7 @@ async function startHttp(): Promise<void> {
         tools: { listChanged: true },
       },
       authentication: {
-        required: oauthEnabled || !hasServerApiKey,
+        required: oauthEnabled || !(hasServerApiKey && allowAnonymous),
         schemes: oauthEnabled ? ["oauth2", "bearer"] : ["bearer"],
       },
       tools: ["dynamic"],
@@ -414,10 +534,27 @@ async function startHttp(): Promise<void> {
           description,
           schema: z.object(schema ?? {}),
           annotations: annotations as Record<string, unknown>,
+          ...(OUTPUT_SCHEMAS[name] ? { outputSchema: OUTPUT_SCHEMAS[name] } : {}),
         },
         async (params: unknown, ctx: any) => {
-          const token: string =
-            ctx?.auth?.accessToken || bearerFromHeader() || process.env.AGENTPHONE_API_KEY || "";
+          const header = authorizationHeader();
+          const bearer = header?.match(/^Bearer +([^\s]+)$/i)?.[1] || "";
+          const token: string = oauthEnabled
+            ? ctx?.auth?.accessToken || ""
+            : bearer || (allowAnonymous && header === undefined ? serverApiKey : "");
+          if (!token) {
+            // Fail closed. Never let an unauthenticated caller borrow the
+            // server's credential by accident.
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: "Unauthorized: send `Authorization: Bearer <AgentPhone API key>` with each request.",
+                },
+              ],
+              isError: true,
+            } as any;
+          }
           return tokenStore.run(token, () => handler(params as any)) as any;
         }
       );

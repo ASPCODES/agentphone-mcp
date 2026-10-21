@@ -5,6 +5,14 @@
  * Used by the MCP server to proxy tool calls to the backend.
  */
 
+// Extra time the client keeps the socket open past the server-side long-poll
+// wait, so a call that runs to its full wait is not aborted just before the
+// response lands.
+const LONG_POLL_GRACE_MS = 15_000;
+// Server-side maximums, used when the caller does not pass an explicit wait.
+const GET_CALL_MAX_WAIT_SECONDS = 300;
+const CONVERSATION_CALL_MAX_WAIT_SECONDS = 600;
+
 export class AgentPhoneAPI {
   private baseUrl: string;
   // A static key, or a getter resolved per request (used when the credential
@@ -499,7 +507,15 @@ export class AgentPhoneAPI {
     if (opts?.timeout) params.push(`timeout=${opts.timeout}`);
     if (params.length) path += `?${params.join("&")}`;
 
-    const fetchTimeout = opts?.wait ? 300_000 : undefined;
+    // Size the client abort timer from the requested wait, but clamp it to the
+    // server's own maximum. The input schema no longer bounds `timeout`, so this
+    // keeps an out-of-range value (e.g. 999999) from holding the socket open far
+    // longer than the server would ever wait; the API still validates the value.
+    const fetchTimeout = opts?.wait
+      ? Math.min(opts.timeout || GET_CALL_MAX_WAIT_SECONDS, GET_CALL_MAX_WAIT_SECONDS) *
+          1000 +
+        LONG_POLL_GRACE_MS
+      : undefined;
 
     return this.request<{
       id: string;
@@ -559,7 +575,18 @@ export class AgentPhoneAPI {
     if (fromNumberId !== undefined) body.fromNumberId = fromNumberId;
     if (voice !== undefined) body.voice = voice;
 
-    const fetchTimeout = waitForCompletion ? 600_000 : undefined;
+    // Clamp the client abort timer to the server's maximum. The input schema no
+    // longer bounds max_wait_seconds, so this keeps an out-of-range value from
+    // holding the socket open far longer than the server would ever wait (the
+    // API still validates the raw value in the body).
+    const fetchTimeout = waitForCompletion
+      ? Math.min(
+          maxWaitSeconds ?? CONVERSATION_CALL_MAX_WAIT_SECONDS,
+          CONVERSATION_CALL_MAX_WAIT_SECONDS
+        ) *
+          1000 +
+        LONG_POLL_GRACE_MS
+      : undefined;
 
     return this.request<{
       id: string;
