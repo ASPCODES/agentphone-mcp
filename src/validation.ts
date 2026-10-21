@@ -1,4 +1,7 @@
-import { normalizeObjectSchema, safeParseAsync } from "@modelcontextprotocol/sdk/server/zod-compat.js";
+import {
+  normalizeObjectSchema,
+  safeParseAsync,
+} from "@modelcontextprotocol/sdk/server/zod-compat.js";
 
 /**
  * Replace the MCP SDK's default input-validation error — a raw, multi-line JSON
@@ -25,8 +28,13 @@ import { normalizeObjectSchema, safeParseAsync } from "@modelcontextprotocol/sdk
  * wrong-typed one.
  */
 export function describeValidationIssue(
-  issue: { code?: string; path?: Array<string | number>; message?: string; [k: string]: any },
-  args: unknown
+  issue: {
+    code?: string;
+    path?: Array<string | number>;
+    message?: string;
+    [k: string]: any;
+  },
+  args: unknown,
 ): string {
   const path = issue.path ?? [];
   const field = path.join(".") || "input";
@@ -54,19 +62,33 @@ export function describeValidationIssue(
         ? `${field} is required`
         : `${field} must be ${typeWord(String(issue.expected))}`;
     case "too_small": {
-      const unit = issue.origin === "string" ? " characters" : issue.origin === "array" ? " items" : "";
+      const unit =
+        issue.origin === "string"
+          ? " characters"
+          : issue.origin === "array"
+            ? " items"
+            : "";
       // Zod flags exact:true for .length(n) — report the single required value.
-      if (issue.exact) return `${field} must be exactly ${issue.minimum}${unit}`;
+      if (issue.exact)
+        return `${field} must be exactly ${issue.minimum}${unit}`;
       return `${field} must be ${issue.inclusive === false ? "greater than" : "at least"} ${issue.minimum}${unit}`;
     }
     case "too_big": {
-      const unit = issue.origin === "string" ? " characters" : issue.origin === "array" ? " items" : "";
-      if (issue.exact) return `${field} must be exactly ${issue.maximum}${unit}`;
+      const unit =
+        issue.origin === "string"
+          ? " characters"
+          : issue.origin === "array"
+            ? " items"
+            : "";
+      if (issue.exact)
+        return `${field} must be exactly ${issue.maximum}${unit}`;
       return `${field} must be ${issue.inclusive === false ? "less than" : "at most"} ${issue.maximum}${unit}`;
     }
     case "invalid_format":
-      if (issue.format === "url" || issue.format === "uri") return `${field} must be a valid URL`;
-      if (issue.format === "email") return `${field} must be a valid email address`;
+      if (issue.format === "url" || issue.format === "uri")
+        return `${field} must be a valid URL`;
+      if (issue.format === "email")
+        return `${field} must be a valid email address`;
       return `${field} has an invalid format`;
     case "invalid_value":
     case "invalid_enum_value": {
@@ -83,25 +105,40 @@ export function describeValidationIssue(
   }
 }
 
-export function installConciseValidation(nativeServer: unknown): void {
-  if (!nativeServer) return;
-  const proto = Object.getPrototypeOf(nativeServer) as
-    | {
-        validateToolInput?: (tool: any, args: unknown, toolName: string) => Promise<unknown>;
-        __agentphoneConciseValidation?: boolean;
-      }
-    | null;
-  if (!proto || typeof proto.validateToolInput !== "function" || proto.__agentphoneConciseValidation) {
-    return;
+export function installConciseValidation(nativeServer: unknown): boolean {
+  if (!nativeServer) return false;
+  const proto = Object.getPrototypeOf(nativeServer) as {
+    validateToolInput?: (
+      tool: any,
+      args: unknown,
+      toolName: string,
+    ) => Promise<unknown>;
+    __agentphoneConciseValidation?: boolean;
+  } | null;
+  if (!proto) return false;
+  if (proto.__agentphoneConciseValidation) return true;
+  if (typeof proto.validateToolInput !== "function") {
+    console.error(
+      "[agentphone] WARNING: the MCP SDK no longer exposes validateToolInput; " +
+        "concise validation errors are disabled and clients will see raw Zod errors.",
+    );
+    return false;
   }
   proto.__agentphoneConciseValidation = true;
-  proto.validateToolInput = async function (tool: any, args: unknown, toolName: string) {
+  proto.validateToolInput = async function (
+    tool: any,
+    args: unknown,
+    toolName: string,
+  ) {
     if (!tool?.inputSchema) return undefined;
-    const schemaToParse = normalizeObjectSchema(tool.inputSchema) ?? tool.inputSchema;
+    const schemaToParse =
+      normalizeObjectSchema(tool.inputSchema) ?? tool.inputSchema;
     const result = (await safeParseAsync(schemaToParse, args)) as {
       success: boolean;
       data?: unknown;
-      error?: { issues?: Array<{ path?: Array<string | number>; message?: string }> };
+      error?: {
+        issues?: Array<{ path?: Array<string | number>; message?: string }>;
+      };
     };
     if (!result.success) {
       const issues = result.error?.issues ?? [];
@@ -117,4 +154,5 @@ export function installConciseValidation(nativeServer: unknown): void {
     }
     return result.data;
   };
+  return true;
 }
